@@ -1,6 +1,6 @@
 import threading
 
-from main.exp2.agent import TOOL_PENDING, Agent
+from main.exp2.agent import Agent
 from main.exp2.tools import (
     DENIED,
     FINISHED,
@@ -20,23 +20,27 @@ Q = "What is the temperature in Warsaw, MO?"
 
 
 def replies(a, task):
-    return [m.result for m in a.board.walk(task.id) if m.tool in ("tail", "kill")]
+    return [
+        c.result
+        for m in a.board.walk(task.msg)
+        for c in m.calls
+        if c.tool in ("tail", "kill")
+    ]
 
 
 def test_user_can_have_a_stuck_tool_killed():
     a = Agent(sp=SP, tools=[stuck_temperature, tail, kill])
     q = a.post(Q)
     task = a.wait_for_task(q)
-    assert task.text == TOOL_PENDING
 
-    r1 = a.wait_for("Do you know the answer yet?", parent=task.id)
-    r2 = a.wait_for("That tool is stuck. Please kill it.", parent=task.id)
+    r1 = a.wait_for("Do you know the answer yet?", parent=task.msg)
+    r2 = a.wait_for("That tool is stuck. Please kill it.", parent=task.msg)
 
     t = a.tasks[task.id]
     assert t.done
     assert t.cancel.is_set()
-    assert a.board[task.id].killed
-    assert a.board[task.id].display.endswith("was killed before it returned]")
+    assert a.board.calls[task.id].killed
+    assert a.board.calls[task.id].display.endswith("was killed before it returned]")
 
     assert DENIED in replies(a, task)[0]
     assert r1.text and r2.text
@@ -66,11 +70,11 @@ def test_a_late_result_from_a_killed_task_is_ignored():
     a.kill(task.id)
 
     gate.set()
-    a.wait_for("anything new?", parent=task.id)
+    a.wait_for("anything new?", parent=task.msg)
 
-    assert a.board[task.id].killed
-    assert a.board[task.id].result is None
-    assert a.board[task.id].terminal
+    assert a.board.calls[task.id].killed
+    assert a.board.calls[task.id].result is None
+    assert a.board.calls[task.id].terminal
 
 
 def test_kill_stops_a_looping_tool():

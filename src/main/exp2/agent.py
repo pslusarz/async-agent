@@ -4,10 +4,9 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..bedrock import MODEL, raw_client
-from .board import Board, Msg
+from .board import Board, Call, Msg
 from .tools import Tool
 
-TOOL_PENDING = "Tool called, please follow up for an answer"
 BOARD_SP = (
     "You are reading a threaded message board. Every message is prefixed with its place "
     "in the tree, like '|   +-- [#5]'. Those prefixes are structure, not part of what was "
@@ -64,7 +63,9 @@ class Agent:
         self.events.put(Event("user", m.id))
         return m
 
-    def wait_for(self, target: str | Msg, parent: int | None = None, timeout: float = 60) -> Msg:
+    def wait_for(
+        self, target: str | Msg, parent: int | None = None, timeout: float = 60
+    ) -> Msg:
         """Block until the agent has answered `target` in words, and return that answer.
 
         A string is posted first, so wait_for("...") is post() followed by wait_for(msg).
@@ -77,7 +78,7 @@ class Agent:
             raise TimeoutError(f"no reply to #{target.id}")
         return self.board.answer_of(target.id)
 
-    def wait_for_task(self, q: Msg, timeout: float = 30) -> Msg:
+    def wait_for_task(self, q: Msg, timeout: float = 30) -> Call:
         """Block until the agent answers `q` by starting a task, and return that node."""
         with self._cv:
             ok = self._cv.wait_for(lambda: self._task_of(q) is not None, timeout)
@@ -85,9 +86,14 @@ class Agent:
             raise TimeoutError(f"no task started for #{q.id}")
         return self._task_of(q)
 
-    def _task_of(self, q: Msg) -> Msg | None:
+    def _task_of(self, q: Msg) -> Call | None:
         return next(
-            (m for m in self.board.walk(q.id) if m.tool and not self.tools[m.tool].meta),
+            (
+                c
+                for m in self.board.walk(q.id)
+                for c in m.calls
+                if not self.tools[c.tool].meta
+            ),
             None,
         )
 
@@ -101,15 +107,16 @@ class Agent:
     def watch(self, node: int, tailer: Callable):
         self.tasks[node].tail = tailer
 
-    def kill(self, node: int):
-        t = self.tasks.get(node)
+    def kill(self, call: int):
+        t = self.tasks.get(call)
         if t is None or t.done:
             return
         t.done = True
         t.cancel.set()
         with self._cv:
-            self.board.kill(node)
+            self.board.kill(call)
             self._cv.notify_all()
+
     def stop(self):
         self.events.put(STOP)
         self._loop.join()
@@ -141,42 +148,42 @@ class Agent:
         self._take_turn(ev.mid)
         self._changed()
 
-    def _take_turn(self, mid: int, focus: int | None = None, note: str | None = None) -> Msg | None:
+    def _take_turn(
+        self, mid: int, focus: int | None = None, note: str | None = None
+    ) -> Msg | None:
         probed = False
         for _ in range(4):
             schemas = self.plain_schemas if probed else self.schemas
             r = self._call(focus if focus is not None else mid, schemas, note)
             calls = [b for b in r.content if b.type == "tool_use"]
+            text = "".join(b.text for b in r.content if b.type == "text")
             if not calls:
-                text = "".join(b.text for b in r.content if b.type == "text")
                 return self.board.post("assistant", text, parent=mid)
             metas = [c for c in calls if self.tools[c.name].meta]
             if metas:
                 # a meta call is a tool that returned at once, so it is recorded as one
+                node = self.board.post("assistant", text, parent=mid)
                 for c in metas:
-                    out = self.tools[c.name].fn(self, **c.input)
-                    node = self.board.post(
-                        "assistant", out, parent=mid, tool=c.name, args=c.input
+                    call = self.board.add_call(node.id, c.name, c.input)
+                    self.board.set_result(
+                        call.id, self.tools[c.name].fn(self, **c.input)
                     )
-                    self.board.set_result(node.id, out)
-                    mid = node.id
+                mid = node.id
                 probed = True
                 continue
-            node = self.board.post(
-                "assistant",
-                TOOL_PENDING,
-                parent=mid,
-                tool=calls[0].name,
-                args=calls[0].input,
-                actions=self.meta_names,
-            )
-            self.tasks[node.id] = Task(node.id)
-            with self._cv:
-                self._cv.notify_all()
-            for c in calls:
+            # one node per assistant turn, holding every call it made at once
+            node = self.board.post("assistant", text, parent=mid)
+            started = [
+                self.board.add_call(node.id, c.name, c.input, actions=self.meta_names)
+                for c in calls
+            ]
+            for call in started:
+                self.tasks[call.id] = Task(call.id)
+            self._changed()
+            for c, call in zip(calls, started):
                 threading.Thread(
                     target=self.tools[c.name].fn,
-                    args=(self, node.id),
+                    args=(self, call.id),
                     kwargs=c.input,
                     daemon=True,
                 ).start()
@@ -192,7 +199,10 @@ class Agent:
         with self._cv:
             self.board.set_result(ev.mid, ev.payload)
             self._cv.notify_all()
-        self._maybe_continue(ev.mid)
+        node = self.board[self.board.calls[ev.mid].msg]
+        # the agent only gets its turn once every placeholder in the node is filled
+        if node.terminal:
+            self._maybe_continue(node.id)
         self._changed()
 
     def _maybe_continue(self, mid: int):

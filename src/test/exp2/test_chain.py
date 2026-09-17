@@ -18,13 +18,16 @@ def test_one_question_drives_two_chained_tool_calls():
 
     answer = a.wait_for(q)
 
-    chain = [m for m in a.board.walk(q.id) if m.tool]
-    assert [m.tool for m in chain] == ["predict_future", "prepare_for_earthquake"]
+    nodes = [m for m in a.board.walk(q.id) if m.calls]
+    assert [c.tool for m in nodes for c in m.calls] == [
+        "predict_future",
+        "prepare_for_earthquake",
+    ]
 
     # each call hangs off the one that motivated it, ending in prose
-    assert chain[0].parent == q.id
-    assert chain[1].parent == chain[0].id
-    assert answer.parent == chain[1].id
+    assert nodes[0].parent == q.id
+    assert nodes[1].parent == nodes[0].id
+    assert answer.parent == nodes[1].id
     assert "earthquake" in answer.text.lower()
     assert not a.errors
 
@@ -43,7 +46,7 @@ def test_a_pending_task_leaves_its_ancestors_unanswered():
     task = a.wait_for_task(q)
 
     if not task.terminal:
-        assert not a.board.answered(task.id)
+        assert not a.board.answered(task.msg)
         assert not a.board.answered(q.id)
 
     a.wait_for(q)

@@ -66,47 +66,66 @@ ACTIONS = {
 
 
 @dataclass
-class Msg:
-    role: str
-    text: str
-    parent: int | None = None
-    id: int = field(default_factory=lambda: next(_ids))
-    at: float = field(default_factory=time.time)
-    children: list[int] = field(default_factory=list)
+class Call:
+    """One tool_use block from an assistant turn."""
+
+    id: int
+    tool: str
+    args: dict = field(default_factory=dict)
     result: str | None = None
-    tool: str | None = None
-    args: dict | None = None
-    actions: tuple[str, ...] = ()
     killed: bool = False
-    @property
-    def call(self) -> str:
-        return f"{self.tool}({', '.join(f'{k}={v!r}' for k, v in (self.args or {}).items())})"
+    actions: tuple[str, ...] = ()
+    msg: int = 0
 
     @property
     def terminal(self) -> bool:
         return self.result is not None or self.killed
 
     @property
+    def sig(self) -> str:
+        return f"{self.tool}({', '.join(f'{k}={v!r}' for k, v in self.args.items())})"
+
+    @property
     def display(self) -> str:
-        # a pending task advertises its id and the meta tools actually registered
-        if self.tool is None:
-            return self.text
         if self.killed:
-            return f"[{self.call} was killed before it returned]"
+            return f"[{self.sig} was killed before it returned]"
         if self.result is not None:
-            return f"[{self.call} returned: {self.result}]"
+            return f"[{self.sig} returned: {self.result}]"
         hints = [ACTIONS[a].format(id=self.id) for a in self.actions if a in ACTIONS]
         offer = f" You may {'; '.join(hints)}." if hints else ""
         return (
-            f"[{self.call} is running as task #{self.id}.{offer}"
+            f"[{self.sig} is running as task #{self.id}.{offer}"
             " This placeholder will be replaced by the outcome when the task finishes"
             " or is killed.]"
         )
 
 
+@dataclass
+class Msg:
+    """One turn: what was said, plus any tool calls made in the same breath."""
+
+    role: str
+    text: str = ""
+    parent: int | None = None
+    id: int = 0
+    at: float = field(default_factory=time.time)
+    children: list[int] = field(default_factory=list)
+    calls: list[Call] = field(default_factory=list)
+
+    @property
+    def terminal(self) -> bool:
+        return all(c.terminal for c in self.calls)
+
+    @property
+    def display(self) -> str:
+        parts = ([self.text] if self.text else []) + [c.display for c in self.calls]
+        return "\n".join(parts)
+
+
 class Board:
     def __init__(self):
         self.msgs: dict[int, Msg] = {}
+        self.calls: dict[int, Call] = {}
         # per board, so a scenario renders the same ids on every run
         self._ids = count(1)
         self.lock = RWLock()
@@ -114,34 +133,32 @@ class Board:
     def __getitem__(self, mid: int) -> Msg:
         return self.msgs[mid]
 
-    def post(
-        self,
-        role: str,
-        text: str,
-        parent: int | None = None,
-        tool: str | None = None,
-        args: dict | None = None,
-        actions: tuple[str, ...] = (),
-    ) -> Msg:
+    def post(self, role: str, text: str = "", parent: int | None = None) -> Msg:
         with self.lock.write():
-            m = Msg(role, text, parent=parent, tool=tool, args=args, actions=actions)
-            m.id = next(self._ids)
+            m = Msg(role, text, parent=parent, id=next(self._ids))
             self.msgs[m.id] = m
             if parent is not None:
                 self.msgs[parent].children.append(m.id)
             return m
 
-    def set_result(self, mid: int, result: str) -> Msg:
+    def add_call(self, mid: int, tool: str, args: dict, actions=()) -> Call:
         with self.lock.write():
-            m = self.msgs[mid]
-            m.result = result
-            return m
+            c = Call(next(self._ids), tool, dict(args), actions=tuple(actions), msg=mid)
+            self.msgs[mid].calls.append(c)
+            self.calls[c.id] = c
+            return c
 
-    def kill(self, mid: int) -> Msg:
+    def set_result(self, cid: int, result: str) -> Call:
         with self.lock.write():
-            m = self.msgs[mid]
-            m.killed = True
-            return m
+            c = self.calls[cid]
+            c.result = result
+            return c
+
+    def kill(self, cid: int) -> Call:
+        with self.lock.write():
+            c = self.calls[cid]
+            c.killed = True
+            return c
 
     def walk(self, mid: int) -> list[Msg]:
         with self.lock.read():
@@ -170,16 +187,16 @@ class Board:
     def answered(self, mid: int) -> bool:
         with self.lock.read():
             m = self.msgs[mid]
-            if m.role == "assistant" and m.tool is None:
+            if m.role == "assistant" and not m.calls:
                 return True
-            if m.tool is not None and not m.terminal:
+            if not m.terminal:
                 return False
             # a finished task still owes the reader words about its outcome
             return bool(m.children) and all(self.answered(c) for c in m.children)
 
     def answer_of(self, mid: int) -> Msg | None:
         with self.lock.read():
-            said = [m for m in self.walk(mid) if m.role == "assistant" and m.tool is None]
+            said = [m for m in self.walk(mid) if m.role == "assistant" and not m.calls]
             return said[-1] if said else None
 
     def depth(self, mid: int) -> int:
@@ -192,16 +209,20 @@ class Board:
     def line(self, m: Msg) -> str:
         text = m.display
         if m.role == "user" and m.parent is not None:
-            p = self.msgs[m.parent]
-            if p.tool is None:
-                pass
-            elif p.killed:
-                text = f"[this message is in reference to task #{p.id}, which was killed] {text}"
-            elif p.result is None:
-                text = f"[this message is in reference to task #{p.id} started earlier] {text}"
-            else:
-                text = f"[this message is in reference to task #{p.id}, which already returned: {p.result}] {text}"
-        return "|   " * self.depth(m.id) + f"+-- [#{m.id}] {text}"
+            ref = [self._ref(c) for c in self.msgs[m.parent].calls]
+            if ref:
+                text = f"[{'; '.join(ref)}] {text}"
+        prefix = "|   " * self.depth(m.id) + "+-- "
+        head, *rest = text.split("\n")
+        pad = " " * len(prefix)
+        return "\n".join([f"{prefix}[#{m.id}] {head}"] + [f"{pad}{r}" for r in rest])
+
+    def _ref(self, c: Call) -> str:
+        if c.killed:
+            return f"this message is in reference to task #{c.id}, which was killed"
+        if c.result is None:
+            return f"this message is in reference to task #{c.id} started earlier"
+        return f"this message is in reference to task #{c.id}, which already returned: {c.result}"
 
     def render(self, focus: int | None = None, note: str | None = None) -> list[dict]:
         with self.lock.read():

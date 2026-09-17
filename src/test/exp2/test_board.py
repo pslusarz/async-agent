@@ -72,55 +72,69 @@ def test_nothing_is_snipped():
 def pending(actions=("tail", "kill")):
     b = Board()
     q = b.post("user", "temperature in Warsaw, MO?")
-    n = b.post(
-        "assistant",
-        "Tool called, please follow up for an answer",
-        parent=q.id,
-        tool="temperature",
-        args=dict(city="Warsaw", state="MO"),
-        actions=actions,
-    )
-    return b, n
+    n = b.post("assistant", "Let me look that up.", parent=q.id)
+    c = b.add_call(n.id, "temperature", dict(city="Warsaw", state="MO"), actions=actions)
+    return b, n, c
 
 
 def test_placeholder_tells_the_agent_what_ran_and_how_to_inspect_it():
-    b, n = pending()
+    b, n, c = pending()
 
-    assert n.text == "Tool called, please follow up for an answer"
-    assert n.display == (
-        f"[temperature(city='Warsaw', state='MO') is running as task #{n.id}. "
-        f"You may inspect progress with tail(task={n.id}); terminate it with kill(task={n.id}). "
+    assert n.text == "Let me look that up."
+    assert c.display == (
+        f"[temperature(city='Warsaw', state='MO') is running as task #{c.id}. "
+        f"You may inspect progress with tail(task={c.id}); terminate it with kill(task={c.id}). "
         "This placeholder will be replaced by the outcome when the task finishes or is killed.]"
     )
+    assert n.display == f"Let me look that up.\n{c.display}"
 
 
 def test_only_registered_meta_tools_are_offered():
-    _, n = pending(actions=("tail",))
-    assert f"tail(task={n.id})" in n.display
-    assert "kill(task=" not in n.display
+    _, _, c = pending(actions=("tail",))
+    assert f"tail(task={c.id})" in c.display
+    assert "kill(task=" not in c.display
 
-    _, n = pending(actions=())
-    assert "You may" not in n.display
-    assert "placeholder will be replaced" in n.display
+    _, _, c = pending(actions=())
+    assert "You may" not in c.display
+    assert "placeholder will be replaced" in c.display
 
 
 def test_placeholder_is_replaced_by_the_result():
-    b, n = pending()
-    b.set_result(n.id, "72")
+    b, n, c = pending()
+    b.set_result(c.id, "72")
 
-    assert n.display == "[temperature(city='Warsaw', state='MO') returned: 72]"
-    assert "task #" not in n.display
-    assert n.text == "Tool called, please follow up for an answer"
+    assert c.display == "[temperature(city='Warsaw', state='MO') returned: 72]"
+    assert "task #" not in c.display
+    assert n.text == "Let me look that up."
+
+
+def test_one_node_can_hold_several_placeholders():
+    b = Board()
+    q = b.post("user", "Warsaw and Springfield?")
+    n = b.post("assistant", "Checking both.", parent=q.id)
+    c1 = b.add_call(n.id, "temperature", dict(city="Warsaw"))
+    c2 = b.add_call(n.id, "temperature", dict(city="Springfield"))
+
+    assert not b.answered(q.id)
+    b.set_result(c1.id, "72")
+    assert not n.terminal and not b.answered(q.id)
+
+    b.set_result(c2.id, "68")
+    assert n.terminal
+    assert not b.answered(q.id)          # filled, but nobody has said anything
+
+    b.post("assistant", "72 and 68.", parent=n.id)
+    assert b.answered(q.id)
 
 
 def test_a_reply_to_a_pending_task_says_which_task_it_refers_to():
-    b, n = pending()
+    b, n, c = pending()
     f = b.post("user", "Do you know the answer yet?", parent=n.id)
 
     def line():
         return next(m["content"] for m in b.render() if f"[#{f.id}]" in m["content"])
 
-    assert f"[this message is in reference to task #{n.id} started earlier]" in line()
+    assert f"[this message is in reference to task #{c.id} started earlier]" in line()
 
-    b.set_result(n.id, "72")
-    assert f"[this message is in reference to task #{n.id}, which already returned: 72]" in line()
+    b.set_result(c.id, "72")
+    assert f"[this message is in reference to task #{c.id}, which already returned: 72]" in line()
