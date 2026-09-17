@@ -167,6 +167,21 @@ class Board:
             roots = [m for m in self.msgs.values() if m.parent is None]
             return sorted(roots, key=lambda r: max(m.id for m in self.walk(r.id)))
 
+    def answered(self, mid: int) -> bool:
+        with self.lock.read():
+            m = self.msgs[mid]
+            if m.role == "assistant" and m.tool is None:
+                return True
+            if m.tool is not None and not m.terminal:
+                return False
+            # a finished task still owes the reader words about its outcome
+            return bool(m.children) and all(self.answered(c) for c in m.children)
+
+    def answer_of(self, mid: int) -> Msg | None:
+        with self.lock.read():
+            said = [m for m in self.walk(mid) if m.role == "assistant" and m.tool is None]
+            return said[-1] if said else None
+
     def depth(self, mid: int) -> int:
         with self.lock.read():
             d, m = 0, self.msgs[mid]
@@ -188,7 +203,7 @@ class Board:
                 text = f"[this message is in reference to task #{p.id}, which already returned: {p.result}] {text}"
         return "|   " * self.depth(m.id) + f"+-- [#{m.id}] {text}"
 
-    def render(self, focus: int | None = None) -> list[dict]:
+    def render(self, focus: int | None = None, note: str | None = None) -> list[dict]:
         with self.lock.read():
             msgs: list[dict] = []
             last = None
@@ -199,5 +214,5 @@ class Board:
             # a reply to a branch can leave other branches rendered after it, and a turn
             # driven by a finished task would otherwise end on an assistant message
             if focus is not None and (last != focus or msgs[-1]["role"] != "user"):
-                msgs.append(dict(role="user", content=f"Respond to [#{focus}]."))
+                msgs.append(dict(role="user", content=note or f"Respond to [#{focus}]."))
             return msgs

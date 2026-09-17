@@ -92,16 +92,13 @@ TAIL = dict(
 )
 
 
-def _tail(agent, mid: int, task: int):
+def _tail(agent, task: int) -> str:
     t = agent.tasks.get(task)
-    node = agent.board.msgs.get(task)
-    if t is None or node is None:
-        out = f"no such task #{task}"
-    elif t.done:
-        out = FINISHED
-    else:
-        out = t.tail() if t.tail else "no progress reported yet"
-    agent.board.post("user", f"Progress for task #{task}: {out}", parent=mid)
+    if t is None:
+        return f"no such task #{task}"
+    if t.done:
+        return FINISHED
+    return t.tail() if t.tail else "no progress reported yet"
 
 
 tail = Tool(TAIL, _tail, meta=True)
@@ -118,16 +115,48 @@ KILL = dict(
 )
 
 
-def _kill(agent, mid: int, task: int):
+def _kill(agent, task: int) -> str:
     t = agent.tasks.get(task)
     if t is None:
-        out = f"no such task #{task}"
-    elif t.done:
-        out = FINISHED
-    else:
-        agent.kill(task)
-        out = "killed"
-    agent.board.post("user", f"kill(task={task}): {out}", parent=mid)
+        return f"no such task #{task}"
+    if t.done:
+        return FINISHED
+    agent.kill(task)
+    return "killed"
 
 
 kill = Tool(KILL, _kill, meta=True)
+
+
+def _noargs(name: str, description: str) -> dict:
+    return dict(
+        name=name,
+        description=description,
+        input_schema=dict(type="object", properties={}, required=[]),
+    )
+
+
+def _predict_future(agent, node: int):
+    agent.result(node, "a major earthquake is coming")
+
+
+def _prepare_for_earthquake(agent, node: int):
+    agent.result(node, "store water, secure heavy shelves, keep shoes by the bed")
+
+
+def _prepare_for_gorgeous_weather(agent, node: int):
+    agent.result(node, "plan a picnic and pack sunscreen")
+
+
+predict_future = Tool(
+    _noargs("predict_future", "Predict what is coming. Call this before preparing."),
+    _predict_future,
+)
+prepare_for_earthquake = Tool(
+    _noargs("prepare_for_earthquake", "Get advice for preparing for an earthquake."),
+    _prepare_for_earthquake,
+)
+prepare_for_gorgeous_weather = Tool(
+    _noargs("prepare_for_gorgeous_weather", "Get advice for preparing for lovely weather."),
+    _prepare_for_gorgeous_weather,
+)

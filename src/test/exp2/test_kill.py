@@ -1,7 +1,15 @@
 import threading
 
 from main.exp2.agent import TOOL_PENDING, Agent
-from main.exp2.tools import DENIED, FINISHED, TEMPERATURE, Tool, kill, stuck_temperature, tail
+from main.exp2.tools import (
+    DENIED,
+    FINISHED,
+    TEMPERATURE,
+    Tool,
+    kill,
+    stuck_temperature,
+    tail,
+)
 
 SP = (
     "Tools run in the background. Calling a tool returns a task id, not a result. "
@@ -11,40 +19,37 @@ SP = (
 Q = "What is the temperature in Warsaw, MO?"
 
 
-def replies(a, node):
-    return [m.text for m in a.board.walk(node.id) if m.text.startswith(("Progress for", "kill("))]
+def replies(a, task):
+    return [m.result for m in a.board.walk(task.id) if m.tool in ("tail", "kill")]
 
 
 def test_user_can_have_a_stuck_tool_killed():
     a = Agent(sp=SP, tools=[stuck_temperature, tail, kill])
-    node = a.post(Q)
-    assert node.text == TOOL_PENDING
+    q = a.post(Q)
+    task = a.wait_for_task(q)
+    assert task.text == TOOL_PENDING
 
-    r1 = a.post("Do you know the answer yet?", parent=node.id)
-    r2 = a.post("That tool is stuck. Please kill it.", parent=node.id)
+    r1 = a.wait_for("Do you know the answer yet?", parent=task.id)
+    r2 = a.wait_for("That tool is stuck. Please kill it.", parent=task.id)
 
-    task = a.tasks[node.id]
-    assert task.done
-    assert task.cancel.is_set()
-    assert a.board[node.id].killed
-    assert a.board[node.id].display.endswith("was killed before it returned]")
+    t = a.tasks[task.id]
+    assert t.done
+    assert t.cancel.is_set()
+    assert a.board[task.id].killed
+    assert a.board[task.id].display.endswith("was killed before it returned]")
 
-    assert DENIED in replies(a, node)[0]
+    assert DENIED in replies(a, task)[0]
     assert r1.text and r2.text
 
 
 def test_a_killed_task_is_terminal():
     a = Agent(sp=SP, tools=[stuck_temperature, tail, kill])
-    node = a.post(Q)
-    a.kill(node.id)
+    q = a.post(Q)
+    task = a.wait_for_task(q)
+    a.kill(task.id)
 
-    tail.fn(a, node.id, task=node.id)
-    kill.fn(a, node.id, task=node.id)
-
-    assert [m.text.split(": ", 1)[1] for m in a.board.walk(node.id) if m.role == "user"][-2:] == [
-        FINISHED,
-        FINISHED,
-    ]
+    assert tail.fn(a, task=task.id) == FINISHED
+    assert kill.fn(a, task=task.id) == FINISHED
 
 
 def test_a_late_result_from_a_killed_task_is_ignored():
@@ -56,24 +61,16 @@ def test_a_late_result_from_a_killed_task_is_ignored():
         agent.result(node, "72")
 
     a = Agent(sp=SP, tools=[Tool(TEMPERATURE, slow), tail, kill])
-    node = a.post(Q)
-    a.kill(node.id)
+    q = a.post(Q)
+    task = a.wait_for_task(q)
+    a.kill(task.id)
 
     gate.set()
-    a.post("anything new?", parent=node.id)
+    a.wait_for("anything new?", parent=task.id)
 
-    assert a.board[node.id].killed
-    assert a.board[node.id].result is None
-    assert a.board[node.id].terminal
-
-
-def test_kill_releases_wait_for():
-    a = Agent(sp=SP, tools=[stuck_temperature, tail, kill])
-    node = a.post(Q)
-    threading.Timer(0.2, lambda: a.kill(node.id)).start()
-
-    done = a.wait_for(node, timeout=5)
-    assert done.killed
+    assert a.board[task.id].killed
+    assert a.board[task.id].result is None
+    assert a.board[task.id].terminal
 
 
 def test_kill_stops_a_looping_tool():
@@ -88,8 +85,9 @@ def test_kill_stops_a_looping_tool():
         stopped.set()
 
     a = Agent(sp=SP, tools=[Tool(TEMPERATURE, looper), tail, kill])
-    node = a.post(Q)
+    q = a.post(Q)
+    task = a.wait_for_task(q)
     assert started.wait(5)
 
-    a.kill(node.id)
+    a.kill(task.id)
     assert stopped.wait(5)
