@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "async-agent"
+version = "0.1.0"
+description = "Async agent built on claudette and the fast* stack, talking to Claude via AWS Bedrock"
+requires-python = ">=3.13"
+dependencies = [
+    "claudette>=0.3.15",
+    # anthropic 1.x dropped the `temperature` kwarg claudette still passes
+    "anthropic[bedrock]>=0.40.0,<1.0",
+    "fastcore>=1.7.0",
+    "fastlite>=0.1.0",
+    "python-fasthtml>=0.12.0",
+    "monsterui>=1.0.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["src/test"]
+# the suite is almost entirely Bedrock round-trip wait; override with -n0 to debug
+addopts = "-n auto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/main"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
+    "pytest-xdist>=3.8.0",
+]
