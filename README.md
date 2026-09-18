@@ -61,3 +61,45 @@ None of this reaches the user. `Chat` flattens the board into an ordinary linear
 conversation — role, text, timestamp, nothing else — and when an answer arrives long
 after the question, it introduces itself: *"Regarding your earlier question, 'how
 long will the build take?': …"*
+
+## What the board looks like
+
+Three calendars were requested at once. Two came back quickly, Joe's did not, and
+the user asked for an update while it was still running. This is the board at that
+moment — `..` marks something still owed an answer, `ok` something settled:
+
+```
+.. #1 user   'when can Jane, Jack and Joe meet?'
+  .. #2 agent  'Let me check all three schedules at the same time!'
+          call #3 schedule(Jane) -> 'free 9-12'
+          call #4 schedule(Jack) -> 'free 10-14'
+          call #5 schedule(Joe)  -> PENDING
+    ok #6 user   'how is that going?'
+      ok #7 agent  'Let me check on that for you!'
+              call #8 tail(5) -> '5% done, about 85s to go'
+        ok #9 agent  "Still working on Joe's schedule — only about 5% of the way"
+```
+
+Worth noticing:
+
+- **#2 is one turn holding three calls.** Two have results, one is still out, so the
+  node is unfinished and #1 stays unanswered. The agent will not try to schedule a
+  meeting from two thirds of the answer.
+- **The progress question is complete in itself.** #6 was asked and answered, so it
+  is settled even though the thing it asked about is not.
+- **Checking on a task is just another tool call.** `tail` is recorded at #8 exactly
+  like the calendar lookups — same shape, immediate result.
+
+The same moment, as the person chatting sees it:
+
+```
+YOU   | when can Jane, Jack and Joe meet?
+AGENT | Let me check all three schedules at the same time!
+YOU   | how is that going?
+AGENT | Let me check on that for you!
+AGENT | Still working on Joe's schedule — only about 5% of the way through with
+        roughly 85 seconds to go.
+```
+
+No ids, no tasks, no tree — and when Joe's calendar finally lands, the agent will
+come back on its own with the meeting time.
