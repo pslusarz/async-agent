@@ -103,3 +103,26 @@ AGENT | Still working on Joe's schedule — only about 5% of the way through wit
 
 No ids, no tasks, no tree — and when Joe's calendar finally lands, the agent will
 come back on its own with the meeting time.
+
+## Project status
+
+This is a proof-of-concept experiment, not a framework you can drop into something.
+It is a place to find out which problems a harness like this actually has to solve,
+and the answer so far is "more than you would guess". If there is interest, it could
+grow into a library; right now the value is in the questions it has surfaced.
+
+What that means in practice:
+
+- There are three experiments in the repo, not one design. `exp1` is an asyncio event
+  loop, kept frozen for comparison; `exp2` is the same ideas rebuilt as the message
+  board; `exp3` is the chat UI over it. Nothing is factored for reuse.
+- The tools are toys — a thermometer, a calendar, a build timer — chosen because they
+  finish at inconvenient moments.
+- Real gaps remain, and they are written down rather than papered over. A tool that
+  raises an exception currently leaves its call pending forever, and a reply can land
+  somewhere the board does not recognise as answering the question. Both are in the
+  [known gaps](.github/copilot-instructions.md).
+
+The tests are the honest description of what works: 76 of them, covering progress
+probes, cancellation, retries after a bad call, several tools running at once, and a
+browser driving the real app.
