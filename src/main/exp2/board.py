@@ -186,7 +186,7 @@ class Board:
 
     def answered(self, mid: int) -> bool:
         # TODO: this demands a reply directly beneath a finished task, but replies land
-        # where the conversation put them - see "Known gaps" in the README
+        # where the conversation put them - see "Known gaps" in .github/copilot-instructions.md
         with self.lock.read():
             m = self.msgs[mid]
             if m.role == "assistant" and not m.calls:

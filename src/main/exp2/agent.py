@@ -184,8 +184,8 @@ class Agent:
                 self.tasks[call.id] = Task(call.id)
             self._changed()
             for c, call in zip(calls, started):
-                # TODO: a raised tool exception never resolves this call, leaving the
-                # node non-terminal forever - see "Known gaps" in the README
+                # TODO: a raised tool exception never resolves this call, leaving the node
+                # non-terminal forever - see "Known gaps" in .github/copilot-instructions.md
                 threading.Thread(
                     target=self.tools[c.name].fn,
                     args=(self, call.id),
