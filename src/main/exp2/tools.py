@@ -191,6 +191,29 @@ def _schedule(agent, node: int, person: str):
 schedule = Tool(SCHEDULE, _schedule)
 
 
+BOOK_ROOM = dict(
+    name="book_room",
+    description=(
+        "Book a meeting room. Only call this once you know an hour that suits everyone. "
+        "A booking does not exist until this tool has been called."
+    ),
+    input_schema=dict(
+        type="object",
+        properties=dict(
+            start=dict(type="string", description="Start of the meeting, like '10:00'")
+        ),
+        required=["start"],
+    ),
+)
+
+
+def _book_room(agent, node: int, start: str):
+    agent.result(node, f"room 3B is booked at {start}")
+
+
+book_room = Tool(BOOK_ROOM, _book_room)
+
+
 def timer(name: str, description: str, result: str, seconds: float = 5.0) -> Tool:
     """A tool that answers when its timer goes off, and can be killed while waiting."""
 
