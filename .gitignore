@@ -17,6 +17,9 @@
 logs/
 *.log
 
+# fasthtml session signing key
+.sesskey
+
 # Python
 __pycache__/
 *.py[cod]

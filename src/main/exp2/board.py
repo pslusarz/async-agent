@@ -185,6 +185,8 @@ class Board:
             return sorted(roots, key=lambda r: max(m.id for m in self.walk(r.id)))
 
     def answered(self, mid: int) -> bool:
+        # TODO: this demands a reply directly beneath a finished task, but replies land
+        # where the conversation put them - see "Known gaps" in the README
         with self.lock.read():
             m = self.msgs[mid]
             if m.role == "assistant" and not m.calls:

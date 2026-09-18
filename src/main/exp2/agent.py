@@ -10,7 +10,10 @@ from .tools import Tool
 BOARD_SP = (
     "You are reading a threaded message board. Every message is prefixed with its place "
     "in the tree, like '|   +-- [#5]'. Those prefixes are structure, not part of what was "
-    "said. Reply in plain prose: no prefix, no id, no tree characters."
+    "said. Reply in plain prose: no prefix, no id, no tree characters. Task ids are "
+    "bookkeeping between you and the board: never quote one to the person you are talking "
+    "to. Do tell them what a task reported, including progress and percentages, and say "
+    "so in your own words as work you are doing rather than by naming the task."
 )
 STOP = object()
 
@@ -181,6 +184,8 @@ class Agent:
                 self.tasks[call.id] = Task(call.id)
             self._changed()
             for c, call in zip(calls, started):
+                # TODO: a raised tool exception never resolves this call, leaving the
+                # node non-terminal forever - see "Known gaps" in the README
                 threading.Thread(
                     target=self.tools[c.name].fn,
                     args=(self, call.id),

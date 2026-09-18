@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -159,4 +160,59 @@ prepare_for_earthquake = Tool(
 prepare_for_gorgeous_weather = Tool(
     _noargs("prepare_for_gorgeous_weather", "Get advice for preparing for lovely weather."),
     _prepare_for_gorgeous_weather,
+)
+
+
+FREE = {"jane": "free 9-12", "jack": "free 10-14"}
+STUCK_PERSON = "joe"
+CALENDAR_STUCK = "connecting to calendar server... no response yet... retrying"
+
+SCHEDULE = dict(
+    name="schedule",
+    description="Look up one person's free hours today. Call once per person.",
+    input_schema=dict(
+        type="object",
+        properties=dict(person=dict(type="string", description="First name")),
+        required=["person"],
+    ),
+)
+
+
+def _schedule(agent, node: int, person: str):
+    who = person.strip().lower()
+    if who == STUCK_PERSON:
+        agent.watch(node, lambda: CALENDAR_STUCK)
+        while not agent.tasks[node].cancel.wait(0.05):
+            pass
+        return
+    agent.result(node, FREE.get(who, "no calendar found"))
+
+
+schedule = Tool(SCHEDULE, _schedule)
+
+
+def timer(name: str, description: str, result: str, seconds: float = 5.0) -> Tool:
+    """A tool that answers when its timer goes off, and can be killed while waiting."""
+
+    def fn(agent, node: int):
+        due = time.monotonic() + seconds
+        agent.watch(
+            node,
+            lambda: f"still running, about {max(0, round(due - time.monotonic()))}s to go",
+        )
+        if not agent.tasks[node].cancel.wait(seconds):
+            agent.result(node, result)
+
+    return Tool(
+        dict(
+            name=name,
+            description=description,
+            input_schema=dict(type="object", properties={}, required=[]),
+        ),
+        fn,
+    )
+
+
+build_time = timer(
+    "build_time", "Find out how long the current build will take.", "12 minutes", 5.0
 )
