@@ -9,8 +9,9 @@ from .tools import Tool
 
 BOARD_SP = (
     "You are reading a threaded message board. Every message is prefixed with its place "
-    "in the tree, like '|   +-- [#5]'. Those prefixes are structure, not part of what was "
-    "said. Reply in plain prose: no prefix, no id, no tree characters. Task ids are "
+    "in the tree, its id and who wrote it, like '|   +-- [#5] [assistant]'. Those "
+    "prefixes are structure, not part of what was said. Reply in plain prose: no prefix, "
+    "no id, no writer tag, no tree characters. Task ids are "
     "bookkeeping between you and the board: never quote one to the person you are talking "
     "to. Do tell them what a task reported, including progress and percentages, and say "
     "so in your own words as work you are doing rather than by naming the task."

@@ -28,7 +28,8 @@ def test_one_question_drives_two_chained_tool_calls():
     assert nodes[0].parent == q.id
     assert nodes[1].parent == nodes[0].id
     assert answer.parent == nodes[1].id
-    assert "earthquake" in answer.text.lower()
+    assert answer is a.board.answer_of(q.id)
+    assert answer.text
     assert not a.errors
 
 

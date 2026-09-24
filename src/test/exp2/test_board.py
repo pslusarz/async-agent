@@ -32,18 +32,12 @@ def test_every_message_is_its_own_chat_message_with_a_tree_prefix():
     f = b.post("user", "population?", parent=a1.id)
     msgs = b.render()
 
-    assert [m["role"] for m in msgs] == [
-        "user",
-        "assistant",
-        "user",
-        "assistant",
-        "user",
-    ]
-    assert msgs[0]["content"] == f"+-- [#{q2.id}] favorite color is blue"
-    assert msgs[1]["content"] == f"|   +-- [#{a2.id}] Noted."
-    assert msgs[2]["content"] == f"+-- [#{q1.id}] capital of France?"
-    assert msgs[3]["content"] == f"|   +-- [#{a1.id}] Paris."
-    assert msgs[4]["content"] == f"|   |   +-- [#{f.id}] population?"
+    assert [m["role"] for m in msgs] == ["user"] * 5
+    assert msgs[0]["content"] == f"+-- [#{q2.id}] [user] favorite color is blue"
+    assert msgs[1]["content"] == f"|   +-- [#{a2.id}] [assistant] Noted."
+    assert msgs[2]["content"] == f"+-- [#{q1.id}] [user] capital of France?"
+    assert msgs[3]["content"] == f"|   +-- [#{a1.id}] [assistant] Paris."
+    assert msgs[4]["content"] == f"|   |   +-- [#{f.id}] [user] population?"
 
 
 def test_a_focus_pointer_is_added_only_when_the_target_is_not_last():

@@ -209,11 +209,13 @@ class Board:
             return d
 
     def line(self, m: Msg) -> str:
-        text = m.display
+        tags = []
         if m.role == "user" and m.parent is not None:
             ref = [self._ref(c) for c in self.msgs[m.parent].calls]
             if ref:
-                text = f"[{'; '.join(ref)}] {text}"
+                tags.append(f"[{'; '.join(ref)}]")
+        tags.append(f"[{m.role}]")
+        text = " ".join(tags + ([m.display] if m.display else []))
         prefix = "|   " * self.depth(m.id) + "+-- "
         head, *rest = text.split("\n")
         pad = " " * len(prefix)
@@ -228,14 +230,18 @@ class Board:
 
     def render(self, focus: int | None = None, note: str | None = None) -> list[dict]:
         with self.lock.read():
+            # every line goes in as user content: an assistant-role line carrying tree
+            # markup reads as an example of the agent's own voice and gets imitated
             msgs: list[dict] = []
             last = None
             for root in self.threads():
                 for m in self.walk(root.id):
-                    msgs.append(dict(role=m.role, content=self.line(m)))
-                    last = m.id
+                    msgs.append(dict(role="user", content=self.line(m)))
+                    last = m
             # a reply to a branch can leave other branches rendered after it, and a turn
             # driven by a finished task would otherwise end on an assistant message
-            if focus is not None and (last != focus or msgs[-1]["role"] != "user"):
-                msgs.append(dict(role="user", content=note or f"Respond to [#{focus}]."))
+            if focus is not None and (last.id != focus or last.role != "user"):
+                msgs.append(
+                    dict(role="user", content=note or f"Respond to [#{focus}].")
+                )
             return msgs
