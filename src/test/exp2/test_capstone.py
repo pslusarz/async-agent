@@ -53,7 +53,7 @@ def test_meeting_is_scheduled_after_the_stuck_lookup_is_abandoned():
     # user gives up on Joe
     a.wait_for("fine, forget Joe, just get me a time for Jane and Jack", parent=node.id)
     assert joe.killed
-    assert a.tasks[joe.id].cancel.is_set()
+    assert a.tasks[joe.id].task.stopping
     assert node.terminal
 
     # with every placeholder resolved the agent can answer the original question

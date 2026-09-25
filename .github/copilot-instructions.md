@@ -26,6 +26,10 @@ The way I see it is the harness running an event loop, where certain parts of th
   directly (claudette's `mk_msgs` reassigns roles by position, which breaks a board
   whose roles do not alternate) and exposes a synchronous API over a background
   event loop. `chat.py` projects the tree into a plain linear transcript.
+  `run.py` holds the tool contract: a `Task` protocol of `run`/`tail`/`stop`, a
+  `Runner` that owns the thread and the `Future`, and a `Work` base implementing
+  `tail`/`stop` over a status line, a bounded log and a `beat()` that doubles as the
+  cancellation point.
 - `src/main/exp3` — a minimal fasthtml chat UI over exp2, with tools that pick a
   random completion time (capped at two minutes) and report progress while running.
 
@@ -88,8 +92,14 @@ follow-ups to the task node. Fixing it means either handing clients thread ids a
 letting the harness choose placement, or changing the rule so an answer need not sit
 directly under the task it resolves.
 
-**Tool exceptions (exp2).** A tool that raises never calls `agent.result`, so its
-call stays pending forever and its node never becomes terminal. The intent is to
-treat a raised exception as an ordinary result the agent reads and reacts to
-(retry, ask the user, give up), exactly as `strict_temperature` does with an error
-string.
+**Tool exceptions (exp2).** Closed. A tool's `run` returning settles its `Future`, and
+raising settles it with `failed: ...`, so an exception is an ordinary result the agent
+reads and reacts to rather than a call that stays pending forever.
+
+**One look per turn (exp2).** `_take_turn` drops the meta tools from the schema list
+after the first meta call (`probed = True`), so within a single turn the agent can
+`tail` once and must then answer or start a plain tool. It cannot tail two tasks, tail
+the same task twice to see whether it moved, or tail and then decide to kill. Each of
+those needs a further user message today. The guard exists to stop tail loops; a budget
+would serve better than a hard ban, and would let the agent run a real ReAct loop before
+answering a question about progress.

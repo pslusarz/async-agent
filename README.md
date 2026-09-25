@@ -50,14 +50,77 @@ every turn:
   stops being rewritten, so the earlier part of the transcript stays stable and
   cacheable while the tail of it is still moving.
 
-Tools run on their own threads behind a small interface: `tail` to ask how it is
-going, `kill` to stop it. A finished tool posts its result back to the loop, which
-gives the agent a turn to say something about it.
+Tools run on their own threads behind a small interface, described in [The tool
+contract](#the-tool-contract) below: `tail` to ask how it is going, `kill` to stop
+it. A finished tool settles a `Future`, which wakes the loop and gives the agent a
+turn to say something about it.
 
 None of this reaches the user. `Chat` flattens the board into an ordinary linear
 conversation with role, text and timestamp. When an answer arrives long after the
 question it belongs to, it says so: *"Regarding your earlier question, 'how long will
 the build take?': ..."*
+
+## The tool contract
+
+A tool that blocks the conversation while it works defeats the point, so every tool
+here is something the harness can start, look in on, and give up on. Three methods,
+and no reference to the agent, the board or the node it was called from:
+
+```python
+class Task(Protocol):
+    def run(self) -> str: ...  # do the work, return the value
+    def tail(self, lines: int) -> str: ...  # what is going on right now
+    def stop(self) -> None: ...  # wind-down requested, called from another thread
+```
+
+A tool's entry point is a factory: it takes the arguments the model supplied and
+returns a `Task`. The harness does the rest.
+
+**The harness owns the thread.** `Runner` starts the task, and whatever `run`
+returns settles a `concurrent.futures.Future` whose done-callback wakes the event
+loop. The tool never calls back into the agent.
+
+**Raising is a result.** A tool that throws settles with `failed: ...` rather than
+leaving its call pending forever. The agent reads the failure like any other
+outcome and decides whether to retry, ask, or give up. This is why the contract
+returns a value instead of taking a callback: a callback that is never reached is
+invisible, an exception is not.
+
+**`tail` says how much you want.** The meta tool is `tail(task, lines)`, so the
+agent can glance at one line or read the last twenty. Output goes onto the board
+permanently, so the default is small.
+
+**`kill` is cooperative, because it has to be.** A Python thread cannot be
+interrupted. `kill` calls `stop()`, waits a short grace period for the task to wind
+down, and then stops caring. A task that ignores `stop` can only be abandoned, and
+the harness is honest about that rather than pretending otherwise.
+
+**A killed task stays killed.** Whatever a task settles with after it was killed is
+dropped rather than posted. A decision to stop is not undone a moment later by a
+result arriving from the work that was stopped.
+
+Most tools do not want to implement `tail` and `stop` themselves, so `Work` provides
+them: a `status` line, a bounded log, and a stop flag. Subclasses implement `run` and
+call `beat()` wherever they can afford to pause — which is both where progress is
+reported and where a stop request is delivered, the way a Temporal activity heartbeat
+doubles as its cancellation point.
+
+```python
+class Countdown(Work):
+    def __init__(self, value: str, seconds: float):
+        super().__init__()
+        self.value, self.seconds = value, seconds
+
+    def run(self) -> str:
+        due = time.monotonic() + self.seconds
+        while (left := due - time.monotonic()) > 0:
+            self.status = f"still running, about {max(0, round(left))}s to go"
+            self.beat(min(0.05, left))
+        return self.value
+```
+
+A tool that never calls `beat` is a tool that can only be abandoned. `stuck_temperature`
+is exactly that, on purpose.
 
 ## What the board looks like
 
@@ -114,11 +177,11 @@ What that means in practice:
   board. `exp3` is the chat UI over it. Nothing is factored for reuse.
 - The tools are toys: a thermometer, a calendar, a build timer, picked because they
   finish at inconvenient moments.
-- Some real gaps are still open. A tool that raises an exception leaves its call
-  pending forever, and a reply can land somewhere the board does not recognise as
-  answering the question. Both are written up in the
-  [known gaps](.github/copilot-instructions.md).
+- Some real gaps are still open. A reply can land somewhere the board does not
+  recognise as answering the question, and the agent gets only one look at a running
+  task per turn, so it cannot tail twice or tail and then kill in one breath. Both are
+  written up in the [known gaps](.github/copilot-instructions.md).
 
-For what does work, the tests are the best guide: 76 of them, covering progress
-probes, cancellation, retries after a bad call, several tools running at once, and a
-browser driving the real app.
+For what does work, the tests are the best guide: 90 of them, covering the tool
+contract itself, progress probes, cancellation, tools that raise, retries after a bad
+call, several tools running at once, and a browser driving the real app.

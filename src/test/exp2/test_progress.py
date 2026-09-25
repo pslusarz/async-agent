@@ -30,6 +30,8 @@ def test_user_polls_progress_then_the_task_finishes():
     assert "60" in r2.text
     assert "90" in r3.text
 
+    # the task settles on its own thread, so wait for the question it answers
+    a.wait_for(q)
     assert a.board.calls[task.id].result == "72"
 
 

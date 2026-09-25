@@ -1,7 +1,9 @@
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
 
+from .run import Work
 
 FINISHED = (
     "task is finished and cannot be further interacted with, "
@@ -11,6 +13,13 @@ FINISHED = (
 
 @dataclass
 class Tool:
+    """A tool the agent can call.
+
+    A plain tool's `fn` takes the model's arguments and returns a Task for the
+    harness to run on its own thread. A meta tool's `fn` takes the agent and
+    returns a string at once, because it acts on tasks rather than becoming one.
+    """
+
     schema: dict
     fn: Callable
     meta: bool = False
@@ -18,6 +27,32 @@ class Tool:
     @property
     def name(self) -> str:
         return self.schema["name"]
+
+
+class Answer(Work):
+    """Settles immediately."""
+
+    def __init__(self, value: str):
+        super().__init__()
+        self.value = value
+
+    def run(self) -> str:
+        return self.value
+
+
+class Waiting(Work):
+    """Runs until `until` is set, reporting `status` in the meantime."""
+
+    def __init__(self, value: str, until, status: str = ""):
+        super().__init__()
+        self.value = value
+        self.until = until
+        self.status = status
+
+    def run(self) -> str:
+        while not self.until.is_set():
+            self.beat(0.02)
+        return self.value
 
 
 TEMPERATURE = dict(
@@ -33,27 +68,41 @@ TEMPERATURE = dict(
     ),
 )
 
-
-def _temperature(agent, node: int, city: str, state: str):
-    agent.result(node, "72")
+temperature = Tool(TEMPERATURE, lambda city, state: Answer("72"))
 
 
-temperature = Tool(TEMPERATURE, _temperature)
+class Stepped(Work):
+    """Advances one step every time it is tailed, then settles.
+
+    Progress driven by the reader rather than the clock, so a test can decide
+    exactly how far along the task is.
+    """
+
+    def __init__(self, steps: list[str], value: str, last: str):
+        super().__init__()
+        self.value = value
+        self.last = last
+        self._steps = iter(steps)
+        self._arrived = threading.Event()
+
+    def tail(self, lines: int) -> str:
+        self.status = next(self._steps, "100% complete")
+        if self.status.startswith(self.last):
+            self._arrived.set()
+        return super().tail(lines)
+
+    def run(self) -> str:
+        while not self._arrived.is_set():
+            self.beat(0.02)
+        return self.value
 
 
-def _slow_temperature(agent, node: int, city: str, state: str):
-    steps = iter(["30% complete", "60% complete", "90% complete"])
-
-    def tail():
-        s = next(steps, "100% complete")
-        if s.startswith("90"):
-            agent.result(node, "72")
-        return s
-
-    agent.watch(node, tail)
-
-
-slow_temperature = Tool(TEMPERATURE, _slow_temperature)
+slow_temperature = Tool(
+    TEMPERATURE,
+    lambda city, state: Stepped(
+        ["30% complete", "60% complete", "90% complete"], "72", "90"
+    ),
+)
 
 
 NEEDS_FULL_STATE = (
@@ -61,45 +110,57 @@ NEEDS_FULL_STATE = (
     "Retry this tool with the full state name."
 )
 
-
-def _strict_temperature(agent, node: int, city: str, state: str):
-    agent.result(node, "72" if len(state) > 2 else NEEDS_FULL_STATE)
-
-
-strict_temperature = Tool(TEMPERATURE, _strict_temperature)
+strict_temperature = Tool(
+    TEMPERATURE,
+    lambda city, state: Answer("72" if len(state) > 2 else NEEDS_FULL_STATE),
+)
 
 
 DENIED = "Connecting to server.... access denied... retrying"
 
 
-def _stuck_temperature(agent, node: int, city: str, state: str):
-    agent.watch(node, lambda: DENIED)
-    cancel = agent.tasks[node].cancel
-    while not cancel.wait(0.05):
-        pass
+class Stuck(Work):
+    """Never settles on its own, but winds down when asked."""
+
+    def __init__(self, status: str):
+        super().__init__()
+        self.status = status
+
+    def run(self) -> str:
+        while True:
+            self.beat(0.05)
 
 
-stuck_temperature = Tool(TEMPERATURE, _stuck_temperature)
+stuck_temperature = Tool(TEMPERATURE, lambda city, state: Stuck(DENIED))
 
 
 TAIL = dict(
     name="tail",
-    description="Check the latest progress of a running task. Pass the id shown as [task #N].",
+    description=(
+        "Check on a running task. Pass the id shown as [task #N], and how many of its "
+        "most recent output lines you want to see."
+    ),
     input_schema=dict(
         type="object",
-        properties=dict(task=dict(type="integer", description="Task id to inspect")),
+        properties=dict(
+            task=dict(type="integer", description="Task id to inspect"),
+            lines=dict(
+                type="integer",
+                description="How many recent lines to show, newest last. Defaults to 5.",
+            ),
+        ),
         required=["task"],
     ),
 )
 
 
-def _tail(agent, task: int) -> str:
-    t = agent.tasks.get(task)
-    if t is None:
+def _tail(agent, task: int, lines: int = 5) -> str:
+    r = agent.tasks.get(task)
+    if r is None:
         return f"no such task #{task}"
-    if t.done:
+    if r.done:
         return FINISHED
-    return t.tail() if t.tail else "no progress reported yet"
+    return r.tail(lines)
 
 
 tail = Tool(TAIL, _tail, meta=True)
@@ -117,10 +178,10 @@ KILL = dict(
 
 
 def _kill(agent, task: int) -> str:
-    t = agent.tasks.get(task)
-    if t is None:
+    r = agent.tasks.get(task)
+    if r is None:
         return f"no such task #{task}"
-    if t.done:
+    if r.done:
         return FINISHED
     agent.kill(task)
     return "killed"
@@ -137,29 +198,19 @@ def _noargs(name: str, description: str) -> dict:
     )
 
 
-def _predict_future(agent, node: int):
-    agent.result(node, "a major earthquake is coming")
-
-
-def _prepare_for_earthquake(agent, node: int):
-    agent.result(node, "store water, secure heavy shelves, keep shoes by the bed")
-
-
-def _prepare_for_gorgeous_weather(agent, node: int):
-    agent.result(node, "plan a picnic and pack sunscreen")
-
-
 predict_future = Tool(
     _noargs("predict_future", "Predict what is coming. Call this before preparing."),
-    _predict_future,
+    lambda: Answer("a major earthquake is coming"),
 )
 prepare_for_earthquake = Tool(
     _noargs("prepare_for_earthquake", "Get advice for preparing for an earthquake."),
-    _prepare_for_earthquake,
+    lambda: Answer("store water, secure heavy shelves, keep shoes by the bed"),
 )
 prepare_for_gorgeous_weather = Tool(
-    _noargs("prepare_for_gorgeous_weather", "Get advice for preparing for lovely weather."),
-    _prepare_for_gorgeous_weather,
+    _noargs(
+        "prepare_for_gorgeous_weather", "Get advice for preparing for lovely weather."
+    ),
+    lambda: Answer("plan a picnic and pack sunscreen"),
 )
 
 
@@ -178,14 +229,11 @@ SCHEDULE = dict(
 )
 
 
-def _schedule(agent, node: int, person: str):
+def _schedule(person: str):
     who = person.strip().lower()
     if who == STUCK_PERSON:
-        agent.watch(node, lambda: CALENDAR_STUCK)
-        while not agent.tasks[node].cancel.wait(0.05):
-            pass
-        return
-    agent.result(node, FREE.get(who, "no calendar found"))
+        return Stuck(CALENDAR_STUCK)
+    return Answer(FREE.get(who, "no calendar found"))
 
 
 schedule = Tool(SCHEDULE, _schedule)
@@ -206,34 +254,27 @@ BOOK_ROOM = dict(
     ),
 )
 
-
-def _book_room(agent, node: int, start: str):
-    agent.result(node, f"room 3B is booked at {start}")
+book_room = Tool(BOOK_ROOM, lambda start: Answer(f"room 3B is booked at {start}"))
 
 
-book_room = Tool(BOOK_ROOM, _book_room)
+class Countdown(Work):
+    """Settles when its timer goes off, and reports how long is left."""
+
+    def __init__(self, value: str, seconds: float):
+        super().__init__()
+        self.value = value
+        self.seconds = seconds
+
+    def run(self) -> str:
+        due = time.monotonic() + self.seconds
+        while (left := due - time.monotonic()) > 0:
+            self.status = f"still running, about {max(0, round(left))}s to go"
+            self.beat(min(0.05, left))
+        return self.value
 
 
 def timer(name: str, description: str, result: str, seconds: float = 5.0) -> Tool:
-    """A tool that answers when its timer goes off, and can be killed while waiting."""
-
-    def fn(agent, node: int):
-        due = time.monotonic() + seconds
-        agent.watch(
-            node,
-            lambda: f"still running, about {max(0, round(due - time.monotonic()))}s to go",
-        )
-        if not agent.tasks[node].cancel.wait(seconds):
-            agent.result(node, result)
-
-    return Tool(
-        dict(
-            name=name,
-            description=description,
-            input_schema=dict(type="object", properties={}, required=[]),
-        ),
-        fn,
-    )
+    return Tool(_noargs(name, description), lambda: Countdown(result, seconds))
 
 
 build_time = timer(

@@ -1,10 +1,10 @@
 import queue
 import threading
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass
 
 from ..bedrock import MODEL, raw_client
 from .board import Board, Call, Msg
+from .run import Runner
 from .tools import Tool
 
 BOARD_SP = (
@@ -26,15 +26,6 @@ class Event:
     payload: str = ""
 
 
-@dataclass
-class Task:
-    id: int
-    # threads cannot be force-killed, so cancellation is cooperative
-    cancel: threading.Event = field(default_factory=threading.Event)
-    tail: Callable | None = None
-    done: bool = False
-
-
 class Agent:
     def __init__(
         self,
@@ -54,7 +45,7 @@ class Agent:
         self.schemas = [t.schema for t in tools]
         self.plain_schemas = [t.schema for t in tools if not t.meta]
         self.meta_names = tuple(t.name for t in tools if t.meta)
-        self.tasks: dict[int, Task] = {}
+        self.tasks: dict[int, Runner] = {}
         self.events: queue.Queue = queue.Queue()
         self.errors: list[Exception] = []
         self._auto: dict[int, int] = {}
@@ -105,18 +96,14 @@ class Agent:
         with self._cv:
             self._cv.notify_all()
 
-    def result(self, node: int, value: str):
-        self.events.put(Event("result", node, payload=value))
-
-    def watch(self, node: int, tailer: Callable):
-        self.tasks[node].tail = tailer
+    def _on_done(self, r: Runner):
+        self.events.put(Event("result", r.id, payload=r.future.result()))
 
     def kill(self, call: int):
-        t = self.tasks.get(call)
-        if t is None or t.done:
+        r = self.tasks.get(call)
+        if r is None or r.killed:
             return
-        t.done = True
-        t.cancel.set()
+        r.kill()
         with self._cv:
             self.board.kill(call)
             self._cv.notify_all()
@@ -182,26 +169,20 @@ class Agent:
                 for c in calls
             ]
             for call in started:
-                self.tasks[call.id] = Task(call.id)
+                self.tasks[call.id] = Runner(
+                    call.id, self.tools[call.tool].fn(**call.args), self._on_done
+                )
             self._changed()
-            for c, call in zip(calls, started):
-                # TODO: a raised tool exception never resolves this call, leaving the node
-                # non-terminal forever - see "Known gaps" in .github/copilot-instructions.md
-                threading.Thread(
-                    target=self.tools[c.name].fn,
-                    args=(self, call.id),
-                    kwargs=c.input,
-                    daemon=True,
-                ).start()
+            for call in started:
+                self.tasks[call.id].start()
             return node
         return None
 
     def _result(self, ev: Event):
-        t = self.tasks.get(ev.mid)
-        if t and t.done:
+        r = self.tasks.get(ev.mid)
+        # a killed task stays killed, so anything it settles with afterwards is dropped
+        if r and r.killed:
             return
-        if t:
-            t.done = True
         with self._cv:
             self.board.set_result(ev.mid, ev.payload)
             self._cv.notify_all()

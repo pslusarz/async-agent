@@ -1,6 +1,7 @@
 import threading
 
 from main.exp2.agent import Agent
+from main.exp2.run import Work
 from main.exp2.tools import (
     DENIED,
     FINISHED,
@@ -36,9 +37,9 @@ def test_user_can_have_a_stuck_tool_killed():
     r1 = a.wait_for("Do you know the answer yet?", parent=task.msg)
     r2 = a.wait_for("That tool is stuck. Please kill it.", parent=task.msg)
 
-    t = a.tasks[task.id]
-    assert t.done
-    assert t.cancel.is_set()
+    r = a.tasks[task.id]
+    assert r.killed
+    assert r.task.stopping
     assert a.board.calls[task.id].killed
     assert a.board.calls[task.id].display.endswith("was killed before it returned]")
 
@@ -56,15 +57,22 @@ def test_a_killed_task_is_terminal():
     assert kill.fn(a, task=task.id) == FINISHED
 
 
+class Deaf(Work):
+    """Settles when the gate opens, whether or not it was asked to stop."""
+
+    def __init__(self, gate):
+        super().__init__()
+        self.gate = gate
+        self.status = "working"
+
+    def run(self) -> str:
+        self.gate.wait(5)
+        return "72"
+
+
 def test_a_late_result_from_a_killed_task_is_ignored():
     gate = threading.Event()
-
-    def slow(agent, node, city, state):
-        agent.watch(node, lambda: "working")
-        gate.wait(5)
-        agent.result(node, "72")
-
-    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, slow), tail, kill])
+    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, lambda city, state: Deaf(gate)), tail, kill])
     q = a.post(Q)
     task = a.wait_for_task(q)
     a.kill(task.id)
@@ -81,14 +89,16 @@ def test_kill_stops_a_looping_tool():
     started = threading.Event()
     stopped = threading.Event()
 
-    def looper(agent, node, city, state):
-        agent.watch(node, lambda: "working")
-        started.set()
-        while not agent.tasks[node].cancel.wait(0.02):
-            pass
-        stopped.set()
+    class Looper(Work):
+        def run(self) -> str:
+            started.set()
+            try:
+                while True:
+                    self.beat(0.02)
+            finally:
+                stopped.set()
 
-    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, looper), tail, kill])
+    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, lambda city, state: Looper()), tail, kill])
     q = a.post(Q)
     task = a.wait_for_task(q)
     assert started.wait(5)

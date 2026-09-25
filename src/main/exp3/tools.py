@@ -1,29 +1,37 @@
 import random
 import time
 
+from ..exp2.run import Work
 from ..exp2.tools import Tool
 
 MAX_SECONDS = 120.0
 DUE = (6.0, 45.0)
 
 
+class Timed(Work):
+    """Settles after a completion time picked when the task is created."""
+
+    def __init__(self, answer, total: float):
+        super().__init__()
+        self.answer = answer
+        self.total = total
+
+    def run(self) -> str:
+        started = time.monotonic()
+        while (spent := time.monotonic() - started) < self.total:
+            pct = min(99, int(100 * spent / self.total))
+            self.status = f"{pct}% done, about {max(1, round(self.total - spent))}s to go"
+            self.beat(min(0.1, self.total - spent))
+        return self.answer
+
+
 def timed(name: str, description: str, properties: dict, answer, due=DUE) -> Tool:
-    """A tool that settles on a random completion time when called and reports progress."""
     lo = min(min(due), MAX_SECONDS)
     hi = min(max(due), MAX_SECONDS)
 
-    def fn(agent, node: int, **kw):
-        total = random.uniform(lo, hi)
-        started = time.monotonic()
-
-        def tail():
-            spent = time.monotonic() - started
-            pct = min(99, int(100 * spent / total))
-            return f"{pct}% done, about {max(1, round(total - spent))}s to go"
-
-        agent.watch(node, tail)
-        if not agent.tasks[node].cancel.wait(total):
-            agent.result(node, answer(**kw) if callable(answer) else answer)
+    def make(**kw):
+        value = answer(**kw) if callable(answer) else answer
+        return Timed(value, random.uniform(lo, hi))
 
     return Tool(
         dict(
@@ -35,7 +43,7 @@ def timed(name: str, description: str, properties: dict, answer, due=DUE) -> Too
                 required=list(properties),
             ),
         ),
-        fn,
+        make,
     )
 
 

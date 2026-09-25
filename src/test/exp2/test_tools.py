@@ -3,7 +3,7 @@ import threading
 import pytest
 
 from main.exp2.agent import Agent
-from main.exp2.tools import TEMPERATURE, Tool, temperature
+from main.exp2.tools import TEMPERATURE, Tool, Waiting, temperature
 
 SP = "Answer in one short sentence."
 Q = "What is the temperature in Warsaw, MO?"
@@ -24,12 +24,7 @@ def test_a_tool_call_becomes_a_task_node_that_later_holds_the_result():
 
 def test_post_returns_before_the_tool_finishes():
     gate = threading.Event()
-
-    def slow(agent, node, city, state):
-        gate.wait(5)
-        agent.result(node, "72")
-
-    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, slow)])
+    a = Agent(sp=SP, tools=[Tool(TEMPERATURE, lambda city, state: Waiting("72", gate))])
     q = a.post(Q)
     task = a.wait_for_task(q)
 
