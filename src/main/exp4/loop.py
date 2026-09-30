@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from . import toys
+from . import tools
 
 MODEL = os.getenv("ANTHROPIC_MODEL", "us.anthropic.claude-sonnet-4-6")
 SP = (
@@ -28,9 +28,9 @@ def options(sp: str = SP) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=MODEL,
         system_prompt=sp,
-        mcp_servers={"toys": toys.server},
-        allowed_tools=["Agent", "Read", "TaskStop", "mcp__toys__lookup_calendar"],
-        agents={"calendar": toys.CALENDAR},
+        mcp_servers={"tools": tools.server},
+        allowed_tools=["Agent", "Read", "TaskStop", "mcp__tools__lookup_calendar"],
+        agents={"calendar": tools.CALENDAR},
         setting_sources=[],
         permission_mode="bypassPermissions",
     )

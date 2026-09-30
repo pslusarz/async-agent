@@ -30,7 +30,7 @@ async def lookup_calendar(args):
     }
 
 
-server = create_sdk_mcp_server(name="toys", version="1.0.0", tools=[lookup_calendar])
+server = create_sdk_mcp_server(name="tools", version="1.0.0", tools=[lookup_calendar])
 
 CALENDAR = AgentDefinition(
     description="Looks up one person's calendar. Use for any question about someone's availability.",
@@ -38,7 +38,7 @@ CALENDAR = AgentDefinition(
         "Call lookup_calendar once for the person named, then report exactly what it "
         "returned. Say nothing else."
     ),
-    tools=["mcp__toys__lookup_calendar"],
+    tools=["mcp__tools__lookup_calendar"],
     model="sonnet",
     # the model asks for run_in_background=False; this overrides it
     background=True,
