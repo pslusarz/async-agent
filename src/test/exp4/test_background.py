@@ -5,6 +5,7 @@ from main.exp4.loop import Session
 pytestmark = pytest.mark.live
 
 JOE = "Use the calendar agent to look up Joe's schedule."
+ZED = "Use the calendar agent to look up Zed's schedule."
 
 
 async def test_a_plain_question_needs_no_subagent():
@@ -85,7 +86,7 @@ async def test_progress_cannot_be_inspected_while_the_task_runs():
     going, the agent can only say that it is still running.
     """
     async with Session() as s:
-        await s.say(JOE)
+        await s.say(ZED)
         assert await s.until(lambda e: any(x.kind == "result" for x in e), timeout=60)
 
         placeholder = s.of("result")[0].text
@@ -97,12 +98,13 @@ async def test_progress_cannot_be_inspected_while_the_task_runs():
 
         assert replied
         assert not [x for x in s.of("call") if x.name == "Read"]
-        assert not s.of("TaskNotification"), "the task should still be running"
+        # Zed's calendar never returns, so the window is not a race
+        assert not s.of("TaskNotification")
 
 
 async def test_a_stuck_task_can_be_killed():
     async with Session() as s:
-        await s.say("Use the calendar agent to look up Zed's schedule.")
+        await s.say(ZED)
         assert await s.until(lambda e: any(x.kind == "TaskStarted" for x in e), timeout=60)
 
         await s.say("That is stuck and will never finish. Stop it.")
