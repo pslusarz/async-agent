@@ -102,6 +102,7 @@ async def test_progress_cannot_be_inspected_while_the_task_runs():
         assert not s.of("TaskNotification")
 
 
+@pytest.mark.realtime
 async def test_a_stuck_task_can_be_killed():
     async with Session() as s:
         await s.say(ZED)

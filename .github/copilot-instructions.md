@@ -58,6 +58,23 @@ responses are cached in `llm_cache.jsonl` so the suite replays in seconds withou
 calling Bedrock; `LLM_CACHE=off` forces live calls. A cold run still needs AWS
 credentials, because the client is built before any cache lookup.
 
+exp4's model calls happen inside the bundled Node CLI, where patching Python's
+httpx cannot reach them, so `src/main/exp4/cache.py` puts a recording proxy in
+front of Bedrock instead and points the subprocess at it with
+`ANTHROPIC_BEDROCK_BASE_URL`. The proxy re-signs each request and forwards it
+with httpx, which is what `pycachy` patches, so the store is an ordinary
+`cachy.jsonl`. Record against Bedrock, then replay with no credentials at all:
+
+```sh
+AWS_PROFILE=staging AWS_REGION=us-east-1 CLAUDE_CODE_USE_BEDROCK=1 \
+  uv run pytest src/test/exp4 -m live -n0            # record
+CLAUDE_CODE_USE_BEDROCK=1 \
+  uv run pytest src/test/exp4 -m 'live and not realtime' -n0   # replay, ~4x faster
+```
+
+Record with `-n0`: cachy rewrites the whole file per entry, so parallel workers
+lose each other's writes.
+
 Things worth remembering when working on the tests:
 
 - Assert on data, not on the model's phrasing. Several tests have broken because
@@ -66,6 +83,8 @@ Things worth remembering when working on the tests:
   `llm_cache.jsonl`, re-record, and dedupe it (keep last per key, sort by key).
 - Replaying from cache removes latency, which changes thread scheduling. Async
   code that relied on an LLM call to yield needs a real suspension point.
+- The two `realtime` tests cannot be replayed at all, for the same reason: they
+  assert on the interleaving that the cache removes. Run them live.
 - Playwright is opened and closed inside each test. The pytest plugins hold a
   session-scoped event loop that stops pytest-asyncio from running exp1's tests
   in the same worker.

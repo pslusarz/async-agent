@@ -22,9 +22,12 @@ dependencies = [
 asyncio_mode = "auto"
 testpaths = ["src/test"]
 # the suite is almost entirely Bedrock round-trip wait; override with -n0 to debug
-# exp4 talks to the Claude Agent SDK, which has no response cache; run it with -m live
+# exp4 drives the Claude Agent SDK; run it with -m live, replaying from cachy.jsonl
 addopts = "-n auto -m 'not live'"
-markers = ["live: drives the Claude Agent SDK against Bedrock, minutes not seconds"]
+markers = [
+    "live: drives the Claude Agent SDK against Bedrock, minutes not seconds",
+    "realtime: asserts on latency the cache removes, so it cannot be replayed",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/main"]
@@ -32,6 +35,7 @@ packages = ["src/main"]
 [dependency-groups]
 dev = [
     "playwright>=1.63.0",
+    "pycachy>=0.0.21",
     "pytest>=8.0.0",
     "pytest-asyncio>=1.0.0",
     "pytest-xdist>=3.8.0",

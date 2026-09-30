@@ -31,6 +31,7 @@ async def test_three_calendars_run_at_once():
         assert first_turn is None or started[-1].at < first_turn.at
 
 
+@pytest.mark.realtime
 async def test_the_answer_arrives_in_pieces_rather_than_once():
     """exp2 holds a node until every call in it lands, so a three-calendar
     question is answered once. Here each outcome gets its own unprompted turn,

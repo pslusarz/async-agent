@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from . import tools
+from . import cache, tools
 
 MODEL = os.getenv("ANTHROPIC_MODEL", "us.anthropic.claude-sonnet-4-6")
 SP = (
@@ -44,6 +44,7 @@ def options(sp: str = SP) -> ClaudeAgentOptions:
         },
         setting_sources=[],
         permission_mode="bypassPermissions",
+        env=cache.env(),
     )
 
 
