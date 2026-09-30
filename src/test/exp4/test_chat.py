@@ -6,8 +6,6 @@ from main.exp4.chat import Chat
 
 pytestmark = pytest.mark.live
 
-REGARDING = "Regarding your earlier question"
-
 
 def until(chat, pred, timeout=150):
     end = time.time() + timeout
@@ -35,31 +33,24 @@ def test_the_transcript_is_plain_roles_and_text():
         chat.close()
 
 
-def test_an_answer_that_follows_its_question_reads_plainly():
-    chat = Chat()
-    try:
-        chat.say("Use the calendar agent to look up Joe's schedule.")
+def test_a_late_answer_stands_on_its_own():
+    """Nothing here attributes a late answer to the question it serves.
 
-        assert until(chat, lambda c: agent_said(c, "Joe"))
-        first = next(e for e in chat.entries() if e.role == "agent")
-        assert not first.text.startswith(REGARDING)
-    finally:
-        chat.close()
-
-
-def test_an_answer_arriving_out_of_order_says_what_it_is_about():
+    The transcript is linear and complete, so when the task lands the agent can
+    see that the conversation moved on, and reintroduces the subject unasked.
+    """
     chat = Chat()
     try:
         chat.say("Use the calendar agent to look up Joe's schedule.")
         assert until(chat, lambda c: any(e.kind == "TaskStarted" for e in c.events), timeout=60)
 
-        chat.say("Meanwhile: what is 2+2? Answer with the number only.")
-        assert until(chat, lambda c: agent_said(c, "4"), timeout=60)
+        chat.say("Meanwhile, what is the capital of France?")
+        assert until(chat, lambda c: agent_said(c, "Paris"), timeout=60)
 
-        assert until(chat, lambda c: agent_said(c, REGARDING))
-        entries = chat.entries()
-        late = next(e for e in entries if REGARDING in e.text)
-        assert "Joe's schedule" in late.text
-        assert entries[-1].text == late.text
+        assert until(chat, lambda c: agent_said(c, "11am"))
+        texts = [e.text for e in chat.entries()]
+        assert any("Paris" in t for t in texts)
+        # the agent names the subject itself; the host does nothing
+        assert "Joe" in texts[-1]
     finally:
         chat.close()

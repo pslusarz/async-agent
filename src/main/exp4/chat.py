@@ -15,10 +15,9 @@ class Entry:
 class Chat:
     """A plain linear transcript over a Session, driven from ordinary sync code.
 
-    The SDK tags a turn that a finished task drove, but not which question that
-    task was answering, so the link is kept here: a task id leads back to the
-    Agent call that started it, and from there to the question that was on the
-    table at the time.
+    Nothing here ties a late answer back to the question it serves. The SDK's
+    transcript is linear and complete, so when a task lands the agent can see
+    that the conversation moved on and reintroduces the subject itself.
     """
 
     def __init__(self, opts=None, timeout: float = 60):
@@ -55,48 +54,8 @@ class Chat:
         return list(self._session.events)
 
     def entries(self) -> list[Entry]:
-        events = self.events
-        out: list[Entry] = []
-        pending: list[Event] = []
-
-        for e in events:
-            if e.kind == "user":
-                out.append(Entry("user", e.text, e.at))
-            elif e.kind == "said" and e.parent is None:
-                pending.append(e)
-            elif e.kind == "turn":
-                out.extend(self._flush(events, pending, e))
-                pending = []
-
-        out.extend(Entry("agent", s.text, s.at) for s in pending)
-        return out
-
-    def _flush(self, events, said, turn):
-        q = self._question_of(events, turn)
-        current = self._latest_question(events, turn.at)
-        late = q is not None and q is not current
-        for s in said:
-            text = (
-                f"Regarding your earlier question, {q.text!r}: {s.text}"
-                if late
-                else s.text
-            )
-            yield Entry("agent", text, s.at)
-
-    @staticmethod
-    def _latest_question(events, at: float) -> Event | None:
-        asked = [e for e in events if e.kind == "user" and e.at <= at]
-        return asked[-1] if asked else None
-
-    def _question_of(self, events, turn) -> Event | None:
-        if (turn.origin or {}).get("kind") != "task-notification":
-            return None
-        landed = [e for e in events if e.kind == "TaskNotification" and e.at <= turn.at]
-        if not landed:
-            return None
-        started = [
-            e for e in events if e.kind == "TaskStarted" and e.task == landed[-1].task
+        return [
+            Entry("user" if e.kind == "user" else "agent", e.text, e.at)
+            for e in self.events
+            if e.kind == "user" or (e.kind == "said" and e.parent is None)
         ]
-        if not started:
-            return None
-        return self._latest_question(events, started[0].at)

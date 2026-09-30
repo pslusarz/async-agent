@@ -47,8 +47,6 @@ class Event:
     task: str = ""
     parent: str | None = None
     origin: dict | None = None
-    file: str = ""
-    raw: object = None
 
 
 @dataclass
@@ -87,13 +85,15 @@ class Session:
             if isinstance(m, AssistantMessage):
                 for b in m.content:
                     if isinstance(b, TextBlock) and b.text.strip():
-                        self._log("said", text=b.text.strip(), parent=m.parent_tool_use_id)
+                        self._log(
+                            "said", text=b.text.strip(), parent=m.parent_tool_use_id
+                        )
                     elif isinstance(b, ToolUseBlock):
-                        self._log("call", name=b.name, raw=b.input)
+                        self._log("call", name=b.name)
             elif isinstance(m, UserMessage):
                 for b in m.content if isinstance(m.content, list) else []:
                     if isinstance(b, ToolResultBlock):
-                        self._log("result", text=str(b.content), raw=b)
+                        self._log("result", text=str(b.content))
             elif isinstance(m, ResultMessage):
                 self._log("turn", text=m.subtype, origin=m.origin)
             elif name.startswith("Task"):
@@ -101,7 +101,6 @@ class Session:
                     name.replace("Message", ""),
                     task=getattr(m, "task_id", ""),
                     text=str(getattr(m, "status", "")),
-                    file=getattr(m, "output_file", "") or "",
                 )
             elif isinstance(m, SystemMessage):
                 self._log("system", text=m.subtype)
