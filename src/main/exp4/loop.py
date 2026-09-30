@@ -19,8 +19,8 @@ from . import tools
 
 MODEL = os.getenv("ANTHROPIC_MODEL", "us.anthropic.claude-sonnet-4-6")
 SP = (
-    "You are a scheduling assistant. Be brief. Use the calendar agent for any "
-    "question about someone's availability."
+    "You are an assistant with specialist agents to delegate to. Be brief. Use the "
+    "calendar agent for anyone's availability and a weather agent for temperatures."
 )
 
 
@@ -29,8 +29,19 @@ def options(sp: str = SP) -> ClaudeAgentOptions:
         model=MODEL,
         system_prompt=sp,
         mcp_servers={"tools": tools.server},
-        allowed_tools=["Agent", "Read", "TaskStop", "mcp__tools__lookup_calendar"],
-        agents={"calendar": tools.CALENDAR},
+        allowed_tools=[
+            "Agent",
+            "Read",
+            "TaskStop",
+            "mcp__tools__lookup_calendar",
+            "mcp__tools__temperature",
+            "mcp__tools__strict_temperature",
+        ],
+        agents={
+            "calendar": tools.CALENDAR,
+            "weather": tools.WEATHER,
+            "strict-weather": tools.STRICT_WEATHER,
+        },
         setting_sources=[],
         permission_mode="bypassPermissions",
     )
@@ -47,6 +58,7 @@ class Event:
     task: str = ""
     parent: str | None = None
     origin: dict | None = None
+    args: dict | None = None
 
 
 @dataclass
@@ -89,7 +101,7 @@ class Session:
                             "said", text=b.text.strip(), parent=m.parent_tool_use_id
                         )
                     elif isinstance(b, ToolUseBlock):
-                        self._log("call", name=b.name)
+                        self._log("call", name=b.name, args=b.input)
             elif isinstance(m, UserMessage):
                 for b in m.content if isinstance(m.content, list) else []:
                     if isinstance(b, ToolResultBlock):
