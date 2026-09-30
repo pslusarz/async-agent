@@ -42,7 +42,9 @@ def test_a_late_answer_stands_on_its_own():
     chat = Chat()
     try:
         chat.say("Use the calendar agent to look up Joe's schedule.")
-        assert until(chat, lambda c: any(e.kind == "TaskStarted" for e in c.events), timeout=60)
+        assert until(
+            chat, lambda c: any(e.kind == "TaskStarted" for e in c.events), timeout=60
+        )
 
         chat.say("Meanwhile, what is the capital of France?")
         assert until(chat, lambda c: agent_said(c, "Paris"), timeout=60)
