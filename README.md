@@ -164,6 +164,77 @@ AGENT | Still working on Joe's schedule, only about 5% of the way through with
 No ids, no tasks and no tree. When Joe's calendar lands, the agent will come back on
 its own with the meeting time.
 
+## The same thing on the Claude Agent SDK
+
+`exp4` rebuilds these scenarios on Anthropic's own Claude Agent SDK, to find out which
+of the parts above it already has. It has the ones the event loop bought and none of
+the ones the board did.
+
+Free: starting work in the background, stopping it (`TaskStop`), and waking the
+conversation when it lands. The unprompted turn is native — a finished task produces a
+turn nobody asked for, which is most of what `exp1` needed a loop for.
+
+The rest is not, and the gaps are the interesting part:
+
+- **Every async tool has to be dressed up as an agent.** A plain MCP tool runs inline
+  and blocks the turn. To get one off the main thread it must be wrapped in an
+  `AgentDefinition` with `background=True` and delegated to, so a one-line calendar
+  lookup becomes a subagent with its own context and system prompt. `background=True`
+  is not optional either: the model always asks for `run_in_background: False`, so the
+  definition has to override it. A side effect is that a failed call is now retried
+  *inside* the subagent, and the parent never sees the correction — cleaner, but
+  strictly less visible than a retry on the main transcript.
+- **The agent will not look in on a running task, and you cannot make it.** The launch
+  placeholder hands over an `output_file` and in the same breath says `Do NOT Read or
+  tail this file — it is the full subagent JSONL transcript and reading it will
+  overflow your context. If the user asks for progress, say the agent is still
+  running.` That instruction is baked into the framework, not into our prompt, so
+  `tail` has no counterpart here. Asked how something is going, the agent can only
+  repeat that it is going.
+- **A pending task can fall out of context.** Nothing re-renders the list of
+  outstanding work. The only record that a task is running is the placeholder at the
+  point it was launched, an ordinary message in an append-only transcript, so as the
+  conversation grows or gets compacted that placeholder ages out and takes the agent's
+  only handle on the task with it. The board rewrites its tail every turn precisely so
+  that cannot happen.
+
+## Caching, which is not optional
+
+Thirteen live tests, three and a half minutes, every run billed and every run needing
+credentials. At that price you stop re-running them, and then you stop trusting them.
+`exp1`-`exp3` solved this long ago by patching `httpx` in-process, which is all
+[pycachy](https://github.com/AnswerDotAI/cachy) does. Doing the same for `exp4` took a
+day, and it is worth being specific about why:
+
+- **There is no support for this.** The Agent SDK documentation has no page on testing,
+  mocking or replay, and the issue tracker has no accepted pattern for it.
+- **In-process patching cannot work.** The model calls happen inside the SDK's bundled
+  **Node** CLI. No amount of patching Python reaches a subprocess, which also rules out
+  `vcrpy` and `pytest-recording`. The only seam left is the wire, so the cache is a
+  proxy on localhost that the CLI is pointed at with `ANTHROPIC_BEDROCK_BASE_URL`.
+- **The request has to be re-signed.** SigV4 covers the `Host` header, so the CLI's
+  signature is void the moment the endpoint changes to localhost. The proxy signs
+  again on the way out. Replays need no credentials at all, because the cache key
+  ignores headers.
+- **Bedrock is not JSON.** Responses stream binary `application/vnd.amazon.eventstream`,
+  which has to survive the round trip byte-for-byte.
+- **Three kinds of id are minted per run** — the session id, the agent ids, and the
+  task output paths under `/private/tmp` — and all of them are echoed back into the
+  next request. They are renumbered by order of first appearance rather than flattened
+  to one value, because flattening makes two requests that differ only in *which* of
+  three concurrent agents finished hash identically.
+- **One of those patterns matched `9007199254740991`.** It is `MAX_SAFE_INTEGER`, it
+  appears as a `maximum` in the tool schemas, and it is sixteen characters of valid
+  hex. Matching it shifted every id numbered after it.
+- **The CLI reports `duration_ms`.** A replay does not spend that time, so the
+  recording and the replay disagree about a number neither of them chose.
+- **Some tests cannot be cached at all.** Two assert on interleaving, and latency is
+  exactly what the cache removes, so the request sequence diverges and there is nothing
+  to match. They are marked `realtime` and run live. A response cache can replay what
+  was said; never when.
+
+Eleven of the thirteen now replay in 53s with `AWS_ACCESS_KEY_ID` set to nonsense.
+
 ## Project status
 
 This is a proof-of-concept experiment, not a framework you can drop into something.
@@ -172,9 +243,10 @@ been more of them than I expected. If there is interest it could grow into a lib
 
 What that means in practice:
 
-- There are three experiments in the repo, not one design. `exp1` is an asyncio event
+- There are four experiments in the repo, not one design. `exp1` is an asyncio event
   loop, kept frozen for comparison. `exp2` is the same ideas rebuilt as the message
-  board. `exp3` is the chat UI over it. Nothing is factored for reuse.
+  board. `exp3` is the chat UI over it. `exp4` is the whole thing again on the Claude
+  Agent SDK, as a control. Nothing is factored for reuse.
 - The tools are toys: a thermometer, a calendar, a build timer, picked because they
   finish at inconvenient moments.
 - Some real gaps are still open. A reply can land somewhere the board does not
@@ -182,6 +254,8 @@ What that means in practice:
   task per turn, so it cannot tail twice or tail and then kill in one breath. Both are
   written up in the [known gaps](.github/copilot-instructions.md).
 
-For what does work, the tests are the best guide: 90 of them, covering the tool
-contract itself, progress probes, cancellation, tools that raise, retries after a bad
-call, several tools running at once, and a browser driving the real app.
+For what does work, the tests are the best guide: 90 of them against the board,
+covering the tool contract itself, progress probes, cancellation, tools that raise,
+retries after a bad call, several tools running at once, and a browser driving the
+real app — plus 13 more driving the SDK, which are where the comparison above comes
+from.
