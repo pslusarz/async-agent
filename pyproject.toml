@@ -15,13 +15,16 @@ dependencies = [
     "fastlite>=0.1.0",
     "python-fasthtml>=0.12.0",
     "monsterui>=1.0.0",
+    "claude-agent-sdk>=0.2.162",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["src/test"]
 # the suite is almost entirely Bedrock round-trip wait; override with -n0 to debug
-addopts = "-n auto"
+# exp4 talks to the Claude Agent SDK, which has no response cache; run it with -m live
+addopts = "-n auto -m 'not live'"
+markers = ["live: drives the Claude Agent SDK against Bedrock, minutes not seconds"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/main"]
