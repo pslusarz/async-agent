@@ -1,5 +1,9 @@
 # async-agent
 
+> **Write-up:** [An agent you can interrupt](https://pslusarz.github.io/articles/2026/10/01/an-agent-you-can-interrupt.html)
+> — why an event loop is enough to produce ReAct, what breaks once a tool outlives the
+> turn that called it, and how this compares with Anthropic's Claude Agent SDK.
+
 If you have ever typed a steering message to GitHub Copilot while it was waiting on
 a long-running tool, and watched your message sit there until the tool finished, you
 already know this is not a solved problem, not even for the people building the
