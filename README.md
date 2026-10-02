@@ -168,15 +168,79 @@ AGENT | Still working on Joe's schedule, only about 5% of the way through with
 No ids, no tasks and no tree. When Joe's calendar lands, the agent will come back on
 its own with the meeting time.
 
+## Timeouts
+
+A tool call carries an extra argument the harness injects into every schema: how long
+the agent expects it to take. When that runs out the harness does not act on it. It
+puts an **overdue event** on the same queue as user messages and finished tasks, which
+means the agent simply gets a turn, with a note naming the task and asking it to look
+and decide. Nothing in the system prompt or any tool description mentions killing;
+that only ever appears on the event, because only the harness knows the clock ran out.
+
+Deciding to leave a task alone re-arms the timer, so the question comes back. Deciding
+to kill it spends from a **retry budget** counted along the branch that led to the
+call — ancestors only, so five lookups issued side by side never spend each other's
+retries. When the budget is gone, the kill result says so, and tells the agent to open
+a new thread and ask the person what to do rather than try again.
+
+Here is a task that was given more time and then stopped, with the elapsed clock on
+the left. The expected interval was clamped to a second and the retry budget to zero,
+to keep the example short:
+
+```
+ 0.0s  .. #1  user   'what is the temperature in Warsaw, MO?'
+11.0s    .. #2  agent  'Let me check that for you right now!'
+                  call #3 temperature(Warsaw, MO) -> KILLED
+13.4s      ok #4  agent  'Let me check on how that lookup is coming along.'  <- overdue
+                    call #5 tail(3) -> 'almost done...'
+16.4s        ok #6  agent  "It's almost done — just about there!"
+                      call #7 tail(3) -> 'almost done...  (nothing has moved since
+                                          you last looked; you will be told when
+                                          it does)'
+18.1s          ok #8  agent  "I'll keep waiting — no need to keep checking since
+                              I'll be notified as soon as the result comes in."
+23.4s      ok #9  agent  'Let me see how it is doing!'                      <- overdue
+                    call #10 tail(3) -> "I'm stuck and cannot make progress."
+25.2s        ok #11 agent  'It looks like the lookup has gotten stuck.'
+                      call #12 kill(3) -> 'killed. temperature has now been killed
+                                           1 time over this request and is not going
+                                           to work. Use new_thread to ...'
+27.2s          ok #13 agent
+                      call #14 new_thread(...) -> 'said in a new thread, #15'
+27.2s  ok #15 agent  "I've been trying to look up the temperature in Warsaw, MO,
+                      but the tool keeps stalling. How would you like to proceed?"
+```
+
+This is the part that is hard without the board. **#4 and #9 are siblings**: two
+separate visits to the same task, ten seconds apart, each its own branch hanging off
+the call they are about — not two more lines at the end of a transcript. And **#15 is
+a new root**, because a thread that has run out of things to try is a bad place to ask
+a question.
+
+Two smaller things the board made easy. The turn is a loop, so the agent keeps every
+tool for its whole turn and can tail, think, and kill in one breath; it is never
+offered a cut-down toolset. And at #6 it chose to look twice — so `tail` tells it when
+nothing has moved since its last look, and promises it will be told when something
+does. That is a fact rather than a rule, and the re-armed timer is what makes the
+promise true. It stopped polling on its own.
+
 ## The same thing on the Claude Agent SDK
 
-`exp4` rebuilds these scenarios on Anthropic's own Claude Agent SDK, to find out which
-of the parts above it already has. It has the ones the event loop bought and none of
-the ones the board did.
+`exp4` and `exp6` rebuild these scenarios on Anthropic's own Claude Agent SDK, to find
+out which of the parts above it already has. It has the ones the event loop bought and
+none of the ones the board did.
 
 Free: starting work in the background, stopping it (`TaskStop`), and waking the
 conversation when it lands. The unprompted turn is native — a finished task produces a
-turn nobody asked for, which is most of what `exp1` needed a loop for.
+turn nobody asked for, which is most of what the event loop was for.
+
+Timeouts port over cleanly, because the clock was never part of the API in the first
+place. `TaskStarted` carries a task id and the session can be spoken to at any moment,
+which is all `exp6` needs to arm a timer and nudge when it expires. Given that nudge,
+the agent behaves the same way it does on the board: told once that a task had been
+running 20s with an empty transcript it said *"within normal startup range"* and left
+it alone, and told again 20s later it said *"still empty after two check-ins, I'll stop
+it now"* and called `TaskStop`. Nobody typed anything after the opening question.
 
 The rest is not, and the gaps are the interesting part:
 
@@ -194,7 +258,20 @@ The rest is not, and the gaps are the interesting part:
   overflow your context. If the user asks for progress, say the agent is still
   running.` That instruction is baked into the framework, not into our prompt, so
   `tail` has no counterpart here. Asked how something is going, the agent can only
-  repeat that it is going.
+  repeat that it is going. The prohibition binds the agent, though, not the harness:
+  that file is live-updating JSONL, so `exp6` reads it and folds a line of it into the
+  overdue nudge. `tail` does not disappear, it changes hands — and a progress report
+  the harness offers cannot be polled the way a tool the agent calls can.
+- **There is nowhere to put an expected interval.** The backgrounding schema is
+  `Agent`/`Task` and belongs to the framework, so the agent cannot say how long it
+  thinks a call will take. The timeout becomes harness policy instead of the agent's
+  own judgement.
+- **A nudge from the harness is indistinguishable from the user.** Saying something to
+  the session is the only way in, so an overdue notice arrives as a user turn. It has
+  to be labelled `[automatic notice from the harness, not from the person you are
+  talking to]`, or the agent thanks the user for checking in. The board has the same
+  shape — every line is rendered as user content — but there a placeholder is already
+  marked as machinery, so it costs nothing.
 - **A pending task can fall out of context.** Nothing re-renders the list of
   outstanding work. The only record that a task is running is the placeholder at the
   point it was launched, an ordinary message in an append-only transcript, so as the
@@ -204,11 +281,11 @@ The rest is not, and the gaps are the interesting part:
 
 ## Caching, which is not optional
 
-Thirteen live tests, three and a half minutes, every run billed and every run needing
-credentials. At that price you stop re-running them, and then you stop trusting them.
-`exp1`-`exp3` solved this long ago by patching `httpx` in-process, which is all
-[pycachy](https://github.com/AnswerDotAI/cachy) does. Doing the same for `exp4` took a
-day, and it is worth being specific about why:
+Sixteen live tests, minutes rather than seconds, every run billed and every run
+needing credentials. At that price you stop re-running them, and then you stop
+trusting them. The board experiments solved this long ago by patching `httpx`
+in-process, which is all [pycachy](https://github.com/AnswerDotAI/cachy) does. Doing
+the same for the SDK ones took a day, and it is worth being specific about why:
 
 - **There is no support for this.** The Agent SDK documentation has no page on testing,
   mocking or replay, and the issue tracker has no accepted pattern for it.
@@ -232,12 +309,12 @@ day, and it is worth being specific about why:
   hex. Matching it shifted every id numbered after it.
 - **The CLI reports `duration_ms`.** A replay does not spend that time, so the
   recording and the replay disagree about a number neither of them chose.
-- **Some tests cannot be cached at all.** Two assert on interleaving, and latency is
-  exactly what the cache removes, so the request sequence diverges and there is nothing
-  to match. They are marked `realtime` and run live. A response cache can replay what
-  was said; never when.
+- **Some tests cannot be cached at all.** Several assert on interleaving or on a
+  wall-clock timer, and latency is exactly what the cache removes, so the request
+  sequence diverges and there is nothing to match. They are marked `realtime` and run
+  live. A response cache can replay what was said; never when.
 
-Eleven of the thirteen now replay in 53s with `AWS_ACCESS_KEY_ID` set to nonsense.
+The cacheable ones replay in under a minute with `AWS_ACCESS_KEY_ID` set to nonsense.
 
 ## Project status
 
@@ -247,19 +324,20 @@ been more of them than I expected. If there is interest it could grow into a lib
 
 What that means in practice:
 
-- There are four experiments in the repo, not one design. `exp1` is an asyncio event
-  loop, kept frozen for comparison. `exp2` is the same ideas rebuilt as the message
-  board. `exp3` is the chat UI over it. `exp4` is the whole thing again on the Claude
-  Agent SDK, as a control. Nothing is factored for reuse.
+- There are two lines of experiment in the repo, not one design. The harness is
+  `exp1`-`exp3` and `exp5`: an asyncio event loop kept frozen for comparison, the same
+  ideas rebuilt as the message board, a chat UI over it, and timeouts on top. The
+  control is `exp4` and `exp6`, which is the whole thing again on the Claude Agent SDK.
+  Nothing is factored for reuse.
 - The tools are toys: a thermometer, a calendar, a build timer, picked because they
   finish at inconvenient moments.
 - Some real gaps are still open. A reply can land somewhere the board does not
-  recognise as answering the question, and the agent gets only one look at a running
-  task per turn, so it cannot tail twice or tail and then kill in one breath. Both are
-  written up in the [known gaps](.github/copilot-instructions.md).
+  recognise as answering the question, so a question can stay open while its answer
+  sits elsewhere in the thread. That one is written up in the
+  [known gaps](.github/copilot-instructions.md).
 
-For what does work, the tests are the best guide: 90 of them against the board,
+For what does work, the tests are the best guide: 97 of them against the board,
 covering the tool contract itself, progress probes, cancellation, tools that raise,
-retries after a bad call, several tools running at once, and a browser driving the
-real app — plus 13 more driving the SDK, which are where the comparison above comes
-from.
+retries after a bad call, several tools running at once, timeouts and the decisions
+they force, and a browser driving the real app — plus 16 more driving the SDK, which
+are where the comparison above comes from.

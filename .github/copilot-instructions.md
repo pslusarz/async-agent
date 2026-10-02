@@ -32,6 +32,17 @@ The way I see it is the harness running an event loop, where certain parts of th
   cancellation point.
 - `src/main/exp3` — a minimal fasthtml chat UI over exp2, with tools that pick a
   random completion time (capped at two minutes) and report progress while running.
+- `src/main/exp5` — exp2 plus **timeouts**. Every plain tool schema gains an injected
+  `timeout` argument, the agent's own estimate of how long the call should take. When
+  it lapses the harness puts an `overdue` event on the queue, which is just another
+  turn: the agent tails, then leaves the task alone (re-arming the timer) or kills it.
+  Kills are counted along the branch that led to the call, so side-by-side calls do
+  not spend each other's retries; when the budget is gone the kill result tells the
+  agent to open a new thread with `new_thread` and ask. Reuses exp2's board and run.
+- `src/main/exp6` — exp4 plus the same timeouts, to see what the SDK gives you. Arms a
+  timer on `TaskStarted` and nudges by saying an automatic notice into the session.
+  The agent cannot read a running task's transcript, but the harness can, so progress
+  is read off the task's `output_file` and folded into the notice.
 
 ## Setup
 
@@ -58,6 +69,15 @@ responses are cached in `llm_cache.jsonl` so the suite replays in seconds withou
 calling Bedrock; `LLM_CACHE=off` forces live calls. A cold run still needs AWS
 credentials, because the client is built before any cache lookup.
 
+The default run excludes `live` and `realtime`. exp5 has one `realtime` test: it turns
+on two timer-driven turns being spaced apart by model latency, which is exactly what
+the cache removes. Run it live:
+
+```sh
+AWS_PROFILE=staging AWS_REGION=us-east-1 LLM_CACHE=off \
+  uv run pytest src/test/exp5 -m realtime -n0
+```
+
 exp4's model calls happen inside the bundled Node CLI, where patching Python's
 httpx cannot reach them, so `src/main/exp4/cache.py` puts a recording proxy in
 front of Bedrock instead and points the subprocess at it with
@@ -75,6 +95,15 @@ CLAUDE_CODE_USE_BEDROCK=1 \
 Record with `-n0`: cachy rewrites the whole file per entry, so parallel workers
 lose each other's writes.
 
+exp6 drives the same SDK and runs the same way, but its tests are all `realtime`: the
+timer is wall-clock, so a replay fires it at a different point in the request sequence
+and diverges from the recording.
+
+```sh
+AWS_PROFILE=staging AWS_REGION=us-east-1 CLAUDE_CODE_USE_BEDROCK=1 \
+  uv run pytest src/test/exp6 -m live -n0
+```
+
 Things worth remembering when working on the tests:
 
 - Assert on data, not on the model's phrasing. Several tests have broken because
@@ -83,7 +112,7 @@ Things worth remembering when working on the tests:
   `llm_cache.jsonl`, re-record, and dedupe it (keep last per key, sort by key).
 - Replaying from cache removes latency, which changes thread scheduling. Async
   code that relied on an LLM call to yield needs a real suspension point.
-- The two `realtime` tests cannot be replayed at all, for the same reason: they
+- The `realtime` tests cannot be replayed at all, for the same reason: they
   assert on the interleaving that the cache removes. Run them live.
 - Playwright is opened and closed inside each test. The pytest plugins hold a
   session-scoped event loop that stops pytest-asyncio from running exp1's tests
@@ -118,7 +147,8 @@ reads and reacts to rather than a call that stays pending forever.
 **One look per turn (exp2).** `_take_turn` drops the meta tools from the schema list
 after the first meta call (`probed = True`), so within a single turn the agent can
 `tail` once and must then answer or start a plain tool. It cannot tail two tasks, tail
-the same task twice to see whether it moved, or tail and then decide to kill. Each of
-those needs a further user message today. The guard exists to stop tail loops; a budget
-would serve better than a hard ban, and would let the agent run a real ReAct loop before
-answering a question about progress.
+the same task twice to see whether it moved, or tail and then decide to kill. Closed in
+exp5, which drops the restriction entirely: the agent keeps every tool for the whole
+turn, bounded only by `MAX_STEPS`. What stopped the tail-spin was not a budget but
+honest data — `tail` says when nothing has moved since the last look, and the re-armed
+timer makes its promise to come back true.
