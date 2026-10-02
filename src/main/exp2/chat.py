@@ -28,11 +28,9 @@ class Chat:
             self._root = m.id
 
     def entries(self) -> list[Entry]:
-        b = self.agent.board
         if self._root is None:
             return []
-        said = [m for m in b.walk(self._root) if m.role == "user" or m.text]
-        said.sort(key=lambda m: m.at)
+        said = sorted(self._said(), key=lambda m: m.at)
 
         out, asked = [], None
         for m in said:
@@ -45,6 +43,10 @@ class Chat:
             text = f"Regarding your earlier question, {q.text!r}: {m.text}" if late else m.text
             out.append(Entry("agent", text, m.at))
         return out
+
+    def _said(self):
+        b = self.agent.board
+        return [m for m in b.walk(self._root) if m.role == "user" or m.text]
 
     def _tail(self) -> int | None:
         # follow-ups hang off the newest node, which is the task node while one runs
