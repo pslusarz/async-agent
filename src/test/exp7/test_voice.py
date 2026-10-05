@@ -126,7 +126,9 @@ def test_a_nudged_turn_is_on_the_board_but_not_in_the_transcript():
     q = a.board.msgs[1]
     a.wait_for(q, timeout=120)
 
-    looked = [m for m in a.board.msgs.values() if any(x.tool == "tail" for x in m.calls)]
+    looked = [
+        m for m in a.board.msgs.values() if any(x.tool == "tail" for x in m.calls)
+    ]
     assert looked, "the timer never nudged"
     assert all(m.aside and m.text for m in looked)
     assert not {m.id for m in looked} & {e.id for e in c.entries()}

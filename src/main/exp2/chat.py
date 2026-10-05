@@ -44,7 +44,11 @@ class Chat:
                 continue
             q = self._question_of(m.id)
             late = q is not None and (asked is None or q.id != asked.id)
-            text = f"Regarding your earlier question, {q.text!r}: {m.text}" if late else m.text
+            text = (
+                f"Regarding your earlier question, {q.text!r}: {m.text}"
+                if late
+                else m.text
+            )
             out.append(Entry("agent", text, m.at, m.id))
         return out
 

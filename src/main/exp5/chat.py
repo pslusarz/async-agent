@@ -6,9 +6,7 @@ class Chat(Linear):
 
     def _said(self):
         b = self.agent.board
-        return [
-            m for root in b.threads() for m in b.walk(root.id) if self._shown(m)
-        ]
+        return [m for root in b.threads() for m in b.walk(root.id) if self._shown(m)]
 
     def _tail(self) -> int | None:
         b = self.agent.board
