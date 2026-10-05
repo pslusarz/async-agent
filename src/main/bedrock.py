@@ -8,7 +8,7 @@ from claudette import AsyncClient, Client
 
 from . import llm_cache
 
-MODEL = "us.anthropic.claude-sonnet-4-6"
+MODEL = os.getenv("ANTHROPIC_MODEL", "us.anthropic.claude-sonnet-4-6")
 PROFILE = os.getenv("AWS_PROFILE", "development")
 REGION = os.getenv("AWS_REGION", "us-east-1")
 
