@@ -44,9 +44,10 @@ def gave_up(tool: str, n: int) -> str:
 
 # A turn is triggered by the user, by a result landing, or by a timer, and each node it
 # posts either looks at a task, starts one, or is the turn's last word. Only some of
-# those nine combinations are the agent talking to the reader; the rest are it thinking,
-# and go on the board unspoken. A look is never speech - the turn has a last word for
-# that - and after a result, starting more work means the agent is not ready to answer.
+# those nine combinations are worth showing the reader; the rest stay on the board as
+# the agent's own context. A node that exists to carry a tail or kill is never shown,
+# because the turn's last word already reports what it found; a node that starts more
+# work after a result is not shown either, because the agent is not ready to answer yet.
 SPEAKS = {("user", "work"), ("user", "word"), ("result", "word")}
 
 

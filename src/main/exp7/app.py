@@ -16,7 +16,7 @@ from fasthtml.common import (
     sse_message,
 )
 
-from ..exp3.tools import temperature
+from ..exp3.tools import schedule, temperature
 from ..exp5.tools import kill, new_thread, tail
 from .agent import Agent
 from .chat import Chat
@@ -120,7 +120,7 @@ def make_app(chat):
     return app
 
 
-chat = Chat(Agent(sp=SP, tools=[temperature, tail, kill, new_thread]))
+chat = Chat(Agent(sp=SP, tools=[temperature, schedule, tail, kill, new_thread]))
 app = make_app(chat)
 
 if __name__ == "__main__":
