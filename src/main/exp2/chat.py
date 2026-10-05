@@ -39,15 +39,21 @@ class Chat:
                 asked = m
                 out.append(Entry("user", m.text, m.at, m.id))
                 continue
+            if m.aside:
+                out.append(Entry("agent", "", m.at, m.id))
+                continue
             q = self._question_of(m.id)
-            late = m.text and q is not None and (asked is None or q.id != asked.id)
+            late = q is not None and (asked is None or q.id != asked.id)
             text = f"Regarding your earlier question, {q.text!r}: {m.text}" if late else m.text
             out.append(Entry("agent", text, m.at, m.id))
         return out
 
+    def _shown(self, m) -> bool:
+        return m.role == "user" or bool(m.text and not m.aside)
+
     def _said(self):
         b = self.agent.board
-        return [m for m in b.walk(self._root) if m.role == "user" or m.text]
+        return [m for m in b.walk(self._root) if self._shown(m)]
 
     def _tail(self) -> int | None:
         # follow-ups hang off the newest node, which is the task node while one runs

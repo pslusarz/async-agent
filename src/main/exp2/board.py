@@ -111,6 +111,8 @@ class Msg:
     at: float = field(default_factory=time.time)
     children: list[int] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
+    # words the harness asked for, kept for context but never shown to the reader
+    aside: bool = False
 
     @property
     def terminal(self) -> bool:
@@ -133,9 +135,11 @@ class Board:
     def __getitem__(self, mid: int) -> Msg:
         return self.msgs[mid]
 
-    def post(self, role: str, text: str = "", parent: int | None = None) -> Msg:
+    def post(
+        self, role: str, text: str = "", parent: int | None = None, aside: bool = False
+    ) -> Msg:
         with self.lock.write():
-            m = Msg(role, text, parent=parent, id=next(self._ids))
+            m = Msg(role, text, parent=parent, id=next(self._ids), aside=aside)
             self.msgs[m.id] = m
             if parent is not None:
                 self.msgs[parent].children.append(m.id)

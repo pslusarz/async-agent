@@ -42,6 +42,18 @@ def gave_up(tool: str, n: int) -> str:
     )
 
 
+# A turn is triggered by the user, by a result landing, or by a timer, and each node it
+# posts either looks at a task, starts one, or is the turn's last word. Only some of
+# those nine combinations are the agent talking to the reader; the rest are it thinking,
+# and go on the board unspoken. A look is never speech - the turn has a last word for
+# that - and after a result, starting more work means the agent is not ready to answer.
+SPEAKS = {("user", "work"), ("user", "word"), ("result", "word")}
+
+
+def speaks(trigger: str, did: str) -> bool:
+    return (trigger, did) in SPEAKS
+
+
 def with_timeout(schema: dict) -> dict:
     s = copy.deepcopy(schema)
     s["input_schema"]["properties"]["timeout"] = TIMEOUT_ARG
@@ -209,7 +221,11 @@ class Agent:
         self._changed()
 
     def _take_turn(
-        self, mid: int, focus: int | None = None, note: str | None = None
+        self,
+        mid: int,
+        focus: int | None = None,
+        note: str | None = None,
+        trigger: str = "user",
     ) -> Msg | None:
         for _ in range(MAX_STEPS):
             r = self._call(
@@ -219,10 +235,14 @@ class Agent:
             calls = [b for b in r.content if b.type == "tool_use"]
             text = "".join(b.text for b in r.content if b.type == "text")
             if not calls:
-                return self.board.post("assistant", text, parent=mid)
+                return self.board.post(
+                    "assistant", text, parent=mid, aside=not speaks(trigger, "word")
+                )
             metas = [c for c in calls if self.tools[c.name].meta]
             if metas:
-                node = self.board.post("assistant", text, parent=mid)
+                node = self.board.post(
+                    "assistant", text, parent=mid, aside=not speaks(trigger, "look")
+                )
                 for c in metas:
                     call = self.board.add_call(node.id, c.name, c.input)
                     self.board.set_result(
@@ -233,7 +253,9 @@ class Agent:
                 if any(c.name in ENDS_TURN for c in metas):
                     return node
                 continue
-            node = self.board.post("assistant", text, parent=mid)
+            node = self.board.post(
+                "assistant", text, parent=mid, aside=not speaks(trigger, "work")
+            )
             started = []
             for c in calls:
                 args = dict(c.input)
@@ -261,7 +283,11 @@ class Agent:
             return
         seconds = float(ev.payload)
         self.nudged[ev.mid] = self.nudged.get(ev.mid, 0) + 1
-        self._take_turn(self.board.calls[ev.mid].msg, note=overdue(ev.mid, seconds))
+        self._take_turn(
+            self.board.calls[ev.mid].msg,
+            note=overdue(ev.mid, seconds),
+            trigger="overdue",
+        )
         # left running rather than killed, so ask again after the same interval
         if not r.done:
             self._arm(ev.mid, seconds)
@@ -291,6 +317,7 @@ class Agent:
         self._take_turn(
             mid,
             focus=q,
+            trigger="result",
             note=(
                 f"Task #{mid} has finished and its outcome is shown above. "
                 f"Answer [#{q}] in words now. Start another task only if you cannot "

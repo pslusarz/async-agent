@@ -53,7 +53,7 @@ class Chat(Threaded):
             m
             for root in b.threads()
             for m in b.walk(root.id)
-            if m.role == "user" or m.text or self.calls(m.id)
+            if self._shown(m) or self.calls(m.id)
         ]
 
     def wait(self, seen: int, timeout: float = 20.0) -> int:
