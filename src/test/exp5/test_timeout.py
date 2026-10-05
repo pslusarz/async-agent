@@ -70,7 +70,9 @@ def test_a_tool_that_keeps_failing_goes_back_to_the_user_in_a_new_thread():
     opener = a.board.threads()[-1]
     assert opener.role == "assistant" and opener.parent is None
     # the fresh branch has no killed ancestors, so a retry there is affordable again
-    retry = a.board.add_call(a.board.post("assistant", parent=opener.id).id, "temperature", {})
+    retry = a.board.add_call(
+        a.board.post("assistant", parent=opener.id).id, "temperature", {}
+    )
     assert a._attempts(retry.id) == 1
     a.stop()
 
