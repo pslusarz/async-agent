@@ -123,6 +123,10 @@ class Agent:
         with self._cv:
             self._cv.notify_all()
 
+    def _emit(self, kind: str, cid: int):
+        # a seam for a watcher to follow one call at a time; nobody listens by default
+        pass
+
     def _on_done(self, r: Runner):
         self.events.put(Event("result", r.id, payload=r.future.result()))
 
@@ -135,6 +139,7 @@ class Agent:
         with self._cv:
             self.board.kill(call)
             self._cv.notify_all()
+        self._emit("settled", call)
 
     def note_kill(self, cid: int) -> str:
         """Say whether this line of attempts has used up its retries."""
@@ -245,6 +250,7 @@ class Agent:
             for call, due in started:
                 self.tasks[call.id].start()
                 self._arm(call.id, due)
+                self._emit("started", call.id)
             return node
         return None
 
@@ -269,6 +275,7 @@ class Agent:
         with self._cv:
             self.board.set_result(ev.mid, ev.payload)
             self._cv.notify_all()
+        self._emit("settled", ev.mid)
         node = self.board[self.board.calls[ev.mid].msg]
         if node.terminal:
             self._maybe_continue(node.id)

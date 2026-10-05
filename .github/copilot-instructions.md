@@ -43,6 +43,11 @@ The way I see it is the harness running an event loop, where certain parts of th
   timer on `TaskStarted` and nudges by saying an automatic notice into the session.
   The agent cannot read a running task's transcript, but the harness can, so progress
   is read off the task's `output_file` and folded into the notice.
+- `src/main/exp7` — exp5 with the running tasks made visible. The agent hands each
+  call it starts, and each one that settles, to a `listener`; `Chat` turns those into
+  widgets and the fasthtml app shows them beside the transcript: a spinner with the
+  tool's name and arguments while it runs, shrinking to a green dot when it returns
+  and a red one when it fails or is killed.
 
 ## Setup
 

@@ -54,13 +54,13 @@ def test_an_answer_arriving_out_of_order_says_what_it_is_about():
     ]
 
 
-def test_the_transcript_exposes_nothing_but_role_text_and_time():
+def test_the_transcript_exposes_nothing_about_tasks_or_threads():
     a = Stub()
     c = Chat(a)
     c.say("hello")
     a.board.post("assistant", "hi", parent=a.board.msgs[1].id)
 
-    assert {f for f in vars(c.entries()[0])} == {"role", "text", "at"}
+    assert {f for f in vars(c.entries()[0])} == {"role", "text", "at", "id"}
 
 
 def test_empty_before_anything_is_said():
