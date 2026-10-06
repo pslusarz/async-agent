@@ -19,6 +19,7 @@ class Demo:
         self.script = Script(replies, self.director)
         self.agent = Agent(
             self.script,
+            self.director,
             sp=scenario.sp,
             tools=[*tools, tail, kill, new_thread],
         )

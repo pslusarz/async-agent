@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from itertools import count
 from typing import Callable
 
 from ..exp2.tools import TEMPERATURE, Tool
@@ -9,6 +10,14 @@ BUILD_TIME = dict(
     description="Find out how long the current build will take.",
     input_schema=dict(type="object", properties={}, required=[]),
 )
+
+TEST_TIME = dict(
+    name="test_time",
+    description="Find out how long the test suite will take.",
+    input_schema=dict(type="object", properties={}, required=[]),
+)
+
+STALLED = "test_time: worker 2 has stopped responding"
 
 SP = (
     "Tools run in the background and take a while. Calling one returns a task id, not "
@@ -36,6 +45,32 @@ class Scenario:
 
 
 def _one_call(director):
+    attempt = count()
+
+    def tests():
+        if next(attempt) == 0:
+            return Scripted(
+                director,
+                "test_time",
+                [
+                    ("collecting test modules", 1.4),
+                    ("starting 4 workers", 1.4),
+                    ("worker 2 has stopped responding", 1.4),
+                ],
+                None,
+                overdue_after=STALLED,
+            )
+        return Scripted(
+            director,
+            "test_time (retry)",
+            [
+                ("collecting test modules", 1.2),
+                ("starting 4 workers", 1.2),
+                ("812 tests in", 1.4),
+            ],
+            "about 4 minutes",
+        )
+
     tools = [
         scripted(
             director,
@@ -46,7 +81,8 @@ def _one_call(director):
                 ("compiling, 80% done", 1.6),
             ],
             "12 minutes",
-        )
+        ),
+        Tool(TEST_TIME, tests),
     ]
     replies = [
         reply(
@@ -55,19 +91,47 @@ def _one_call(director):
             "Let me find out.",
             use("build_time", timeout=60),
         ),
-        reply("agent answers", 1.4, "The build needs about 12 minutes."),
+        reply("agent answers about the build", 1.4, "The build needs about 12 minutes."),
+        reply(
+            "agent starts test_time",
+            1.2,
+            "Checking the suite too.",
+            use("test_time", timeout=25),
+        ),
+        reply("agent tails the stuck task", 1.2, "", use("tail", task=7)),
+        reply("agent kills the stuck task", 1.4, "", use("kill", task=7)),
+        reply(
+            "agent starts test_time again",
+            1.4,
+            "That run wedged, so I stopped it and started a fresh one.",
+            use("test_time", timeout=25),
+        ),
+        reply(
+            "agent reports on the suite",
+            1.4,
+            "The suite takes about 4 minutes - the first run hung on a dead worker, "
+            "so this is from a clean retry.",
+        ),
     ]
     return tools, replies
 
 
 ONE_CALL = Scenario(
     key="one-call",
-    title="One tool call",
+    title="One tool call, then one that wedges",
     blurb=(
-        "The simplest shape: a question, a tool that takes a while, and the answer "
-        "arriving on its own once the task settles."
+        "The simplest shape first: a question, a tool that takes a while, and the "
+        "answer arriving on its own. Then a follow-up whose tool reports progress and "
+        "then stops dead - the harness notices it is overdue, and the agent tails it, "
+        "kills it and starts it again."
     ),
-    says=[Says("how long will the build take?")],
+    says=[
+        Says("how long will the build take?"),
+        Says(
+            "and how long does the test suite take?",
+            after="agent answers about the build",
+        ),
+    ],
     build=_one_call,
 )
 

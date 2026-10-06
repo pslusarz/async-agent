@@ -129,7 +129,7 @@ Each active session runs a real agent harness on real threads:
 - 1 thread per running background task
 
 Measured peak extra threads per session: **5** for `weather` (all three tool calls in
-flight), **4** for `overlap`, **2** for `one-call`. All drop back to 0 once the run
+flight), **4** for `overlap`, **3** for `one-call`. All drop back to 0 once the run
 is stopped, so a reaped session reclaims everything.
 
 Sessions are reaped when unwatched (no live SSE stream) and idle past `Stages.TTL`.
