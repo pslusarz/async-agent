@@ -323,7 +323,7 @@ def make_app(stages: Stages):
 
     @rt("/")
     def index():
-        return Titled("An agent you can interrupt", landing())
+        return Titled("Towards a responsive agentic behavior", landing())
 
     @rt("/s/{key}")
     def scenario(key: str, session):

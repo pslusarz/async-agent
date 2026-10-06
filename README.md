@@ -1,6 +1,6 @@
 # async-agent
 
-> **Write-up:** [An agent you can interrupt](https://pslusarz.github.io/articles/2026/10/01/an-agent-you-can-interrupt.html)
+> **Write-up:** [Towards a responsive agentic behavior](https://pslusarz.github.io/articles/2026/10/01/an-agent-you-can-interrupt.html)
 > — why an event loop is enough to produce ReAct, what breaks once a tool outlives the
 > turn that called it, and how this compares with Anthropic's Claude Agent SDK.
 >
