@@ -43,8 +43,8 @@ class Agent:
         self.board = Board()
         self.tools = {t.name: t for t in tools}
         self.schemas = [t.schema for t in tools]
-        self.plain_schemas = [t.schema for t in tools if not t.meta]
-        self.meta_names = tuple(t.name for t in tools if t.meta)
+        self.background_schemas = [t.schema for t in tools if not t.synchronous]
+        self.synchronous_names = tuple(t.name for t in tools if t.synchronous)
         self.tasks: dict[int, Runner] = {}
         self.events: queue.Queue = queue.Queue()
         self.errors: list[Exception] = []
@@ -87,7 +87,7 @@ class Agent:
                 c
                 for m in self.board.walk(q.id)
                 for c in m.calls
-                if not self.tools[c.tool].meta
+                if not self.tools[c.tool].synchronous
             ),
             None,
         )
@@ -144,17 +144,17 @@ class Agent:
     ) -> Msg | None:
         probed = False
         for _ in range(4):
-            schemas = self.plain_schemas if probed else self.schemas
+            schemas = self.background_schemas if probed else self.schemas
             r = self._call(focus if focus is not None else mid, schemas, note)
             calls = [b for b in r.content if b.type == "tool_use"]
             text = "".join(b.text for b in r.content if b.type == "text")
             if not calls:
                 return self.board.post("assistant", text, parent=mid)
-            metas = [c for c in calls if self.tools[c.name].meta]
-            if metas:
-                # a meta call is a tool that returned at once, so it is recorded as one
+            immediate = [c for c in calls if self.tools[c.name].synchronous]
+            if immediate:
+                # a synchronous tool has already returned, so it is recorded as settled
                 node = self.board.post("assistant", text, parent=mid)
-                for c in metas:
+                for c in immediate:
                     call = self.board.add_call(node.id, c.name, c.input)
                     self.board.set_result(
                         call.id, self.tools[c.name].fn(self, **c.input)
@@ -165,7 +165,9 @@ class Agent:
             # one node per assistant turn, holding every call it made at once
             node = self.board.post("assistant", text, parent=mid)
             started = [
-                self.board.add_call(node.id, c.name, c.input, actions=self.meta_names)
+                self.board.add_call(
+                    node.id, c.name, c.input, actions=self.synchronous_names
+                )
                 for c in calls
             ]
             for call in started:

@@ -17,7 +17,7 @@ class Stub:
         self.board = Board()
         self.tools = {
             "temperature": Tool(dict(name="temperature"), None),
-            "tail": Tool(dict(name="tail"), None, meta=True),
+            "tail": Tool(dict(name="tail"), None, synchronous=True),
         }
         self.listener = None
         self.on_change = None
@@ -40,13 +40,13 @@ def start(c, a, parent, aside=False, **args):
 @pytest.mark.parametrize(
     "trigger,did,said",
     [
-        ("user", "look", False),
+        ("user", "sync", False),
         ("user", "work", True),
         ("user", "word", True),
-        ("result", "look", False),
+        ("result", "sync", False),
         ("result", "work", False),
         ("result", "word", True),
-        ("overdue", "look", False),
+        ("overdue", "sync", False),
         ("overdue", "work", False),
         ("overdue", "word", False),
     ],
@@ -130,7 +130,7 @@ def test_a_nudged_turn_is_on_the_board_but_not_in_the_transcript():
         m for m in a.board.msgs.values() if any(x.tool == "tail" for x in m.calls)
     ]
     assert looked, "the timer never nudged"
-    assert all(m.aside and m.text for m in looked)
+    assert all(m.aside for m in looked)
     assert not {m.id for m in looked} & {e.id for e in c.entries()}
-    assert spoken(c)[-1] != looked[-1].text
+    assert not {m.text for m in looked if m.text} & set(spoken(c))
     a.stop()

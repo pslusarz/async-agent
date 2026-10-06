@@ -68,8 +68,8 @@ class Chat(Threaded):
             self._moved.notify_all()
 
     def _on_call(self, kind: str, call: Call):
-        # meta calls act on tasks rather than becoming one, so there is nothing to watch
-        if self.agent.tools[call.tool].meta:
+        # a synchronous call has already returned, so there is no progress to watch
+        if self.agent.tools[call.tool].synchronous:
             return
         if kind == "started":
             self._calls[call.id] = Widget(

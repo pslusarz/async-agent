@@ -15,14 +15,15 @@ FINISHED = (
 class Tool:
     """A tool the agent can call.
 
-    A plain tool's `fn` takes the model's arguments and returns a Task for the
-    harness to run on its own thread. A meta tool's `fn` takes the agent and
-    returns a string at once, because it acts on tasks rather than becoming one.
+    A background tool's `fn` takes the model's arguments and returns a Task for the
+    harness to run on its own thread; the call outlives the turn that made it. A
+    synchronous tool's `fn` takes the agent and returns a string at once, because it
+    acts on tasks rather than becoming one.
     """
 
     schema: dict
     fn: Callable
-    meta: bool = False
+    synchronous: bool = False
 
     @property
     def name(self) -> str:
@@ -163,7 +164,7 @@ def _tail(agent, task: int, lines: int = 5) -> str:
     return r.tail(lines)
 
 
-tail = Tool(TAIL, _tail, meta=True)
+tail = Tool(TAIL, _tail, synchronous=True)
 
 
 KILL = dict(
@@ -187,7 +188,7 @@ def _kill(agent, task: int) -> str:
     return "killed"
 
 
-kill = Tool(KILL, _kill, meta=True)
+kill = Tool(KILL, _kill, synchronous=True)
 
 
 def _noargs(name: str, description: str) -> dict:

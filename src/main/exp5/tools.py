@@ -27,7 +27,7 @@ def _tail(agent, task: int, lines: int = 5) -> str:
     return out
 
 
-tail = Tool(LOOK, _tail, meta=True)
+tail = Tool(LOOK, _tail, synchronous=True)
 
 STUCK = "I'm stuck and cannot make progress."
 ALMOST = "almost done..."
@@ -90,7 +90,7 @@ def _kill(agent, task: int) -> str:
     return agent.note_kill(task)
 
 
-kill = Tool(KILL, _kill, meta=True)
+kill = Tool(KILL, _kill, synchronous=True)
 
 
 NEW_THREAD = dict(
@@ -115,4 +115,4 @@ def _new_thread(agent, text: str) -> str:
     return f"said in a new thread, #{m.id}"
 
 
-new_thread = Tool(NEW_THREAD, _new_thread, meta=True)
+new_thread = Tool(NEW_THREAD, _new_thread, synchronous=True)

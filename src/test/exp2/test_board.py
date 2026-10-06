@@ -83,7 +83,7 @@ def test_placeholder_tells_the_agent_what_ran_and_how_to_inspect_it():
     assert n.display == f"Let me look that up.\n{c.display}"
 
 
-def test_only_registered_meta_tools_are_offered():
+def test_only_registered_synchronous_tools_are_offered():
     _, _, c = pending(actions=("tail",))
     assert f"tail(task={c.id})" in c.display
     assert "kill(task=" not in c.display

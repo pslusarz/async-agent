@@ -52,12 +52,40 @@ def ask_instead(tool: str) -> str:
     )
 
 
+def how_to_call(names: tuple[str, ...]) -> str:
+    """Told to the agent because only the harness knows which tools outlive a turn."""
+    listed = ", ".join(names)
+    return (
+        f"Two kinds of tool are available to you. {listed} are synchronous: they answer "
+        "at once, and calling one does not end your turn - you are given another turn "
+        "immediately, with the result in front of you. Every other tool runs in the "
+        "background: calling one starts work that outlives this turn and hands you a "
+        "task id rather than a result.\n"
+        "Do not mix the two in one turn. A turn that calls a synchronous tool starts no "
+        "background work, so anything you ask to run alongside it will not be started. "
+        "Call the synchronous tool on its own, read what it says on the turn you are "
+        "given straight after, and start the background work then. Calling more than "
+        "one synchronous tool at a time is allowed, but one at a time reads better."
+    )
+
+
+def not_started(names: list[str]) -> str:
+    listed = ", ".join(names)
+    was = "was" if len(names) == 1 else "were"
+    return (
+        f"The result above is from the synchronous tool you just called. {listed} "
+        f"{was} not started, because a turn that calls a synchronous tool starts no "
+        "background work. Start it now if you still want it."
+    )
+
+
 # A turn is triggered by the user, by a result landing, or by a timer, and each node it
-# posts either looks at a task, starts one, or is the turn's last word. Only some of
-# those nine combinations are worth showing the reader; the rest stay on the board as
-# the agent's own context. A node that exists to carry a tail or kill is never shown,
-# because the turn's last word already reports what it found; a node that starts more
-# work after a result is not shown either, because the agent is not ready to answer yet.
+# posts either calls a synchronous tool, starts background work, or is the turn's last
+# word. Only some of those nine combinations are worth showing the reader; the rest stay
+# on the board as the agent's own context. A node that exists to carry a synchronous
+# call is never shown, because the turn's last word already reports what it found; a
+# node that starts work after a result is not shown either, because the agent is not
+# ready to answer yet.
 SPEAKS = {("user", "work"), ("user", "word"), ("result", "word")}
 
 
@@ -92,7 +120,11 @@ class Agent:
         self.sp = f"{BOARD_SP}\n\n{sp}" if sp else BOARD_SP
         self.board = Board()
         self.tools = {t.name: t for t in tools}
-        self.schemas = [t.schema if t.meta else with_timeout(t.schema) for t in tools]
+        self.schemas = [
+            t.schema if t.synchronous else with_timeout(t.schema) for t in tools
+        ]
+        if names := tuple(t.name for t in tools if t.synchronous):
+            self.sp = f"{self.sp}\n\n{how_to_call(names)}"
         self.tasks: dict[int, Runner] = {}
         self.timers: dict[int, threading.Timer] = {}
         self.nudged: dict[int, int] = {}
@@ -138,7 +170,7 @@ class Agent:
                 c
                 for m in self.board.walk(q.id)
                 for c in m.calls
-                if not self.tools[c.tool].meta
+                if not self.tools[c.tool].synchronous
             ),
             None,
         )
@@ -253,21 +285,25 @@ class Agent:
                 return self.board.post(
                     "assistant", text, parent=mid, aside=not speaks(trigger, "word")
                 )
-            metas = [c for c in calls if self.tools[c.name].meta]
-            if metas:
+            immediate = [c for c in calls if self.tools[c.name].synchronous]
+            if immediate:
                 node = self.board.post(
-                    "assistant", text, parent=mid, aside=not speaks(trigger, "look")
+                    "assistant", text, parent=mid, aside=not speaks(trigger, "sync")
                 )
-                for c in metas:
+                for c in immediate:
                     call = self.board.add_call(node.id, c.name, c.input)
                     self.board.set_result(
                         call.id, self.tools[c.name].fn(self, **c.input)
                     )
                 mid = node.id
                 self._changed()
-                if any(c.name in ENDS_TURN for c in metas):
+                if any(c.name in ENDS_TURN for c in immediate):
                     return node
-                note, self._ask = self._ask, None
+                deferred = [c.name for c in calls if c not in immediate]
+                note = self._ask or (not_started(deferred) if deferred else None)
+                self._ask = None
+                # present_synchronous_tool_result_to_agent_immediately: the turn does not
+                # end, because a result nobody has read is the same as no result at all
                 continue
             node = self.board.post(
                 "assistant", text, parent=mid, aside=not speaks(trigger, "work")

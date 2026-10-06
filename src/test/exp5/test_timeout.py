@@ -18,7 +18,7 @@ SP = "Tools run in the background. Calling one returns a task id, not a result."
 Q = "What is the temperature in Warsaw, MO?"
 
 
-def meta_calls(a, name):
+def sync_calls(a, name):
     return [c for m in a.board.msgs.values() for c in m.calls if c.tool == name]
 
 
@@ -35,7 +35,7 @@ def test_a_finished_task_leaves_no_pending_nudge():
     task = a.wait_for_task(q)
     a.wait_for(q)
     assert a.timers.get(task.id) is None
-    assert not meta_calls(a, "tail")
+    assert not sync_calls(a, "tail")
     a.stop()
 
 
@@ -46,9 +46,9 @@ def test_an_overdue_task_is_inspected_and_killed():
 
     assert a.wait_until(lambda: task.killed, timeout=90), a.errors
 
-    tails = meta_calls(a, "tail")
+    tails = sync_calls(a, "tail")
     assert tails and STUCK in tails[0].result
-    assert meta_calls(a, "kill")
+    assert sync_calls(a, "kill")
     assert a.tasks[task.id].killed
     a.stop()
 
@@ -64,8 +64,8 @@ def test_a_tool_that_keeps_failing_goes_back_to_the_user_in_a_new_thread():
     a.wait_for_task(q)
 
     assert a.wait_until(lambda: len(a.board.threads()) > 1, timeout=120), a.errors
-    assert len(meta_calls(a, "kill")) == 2
-    assert meta_calls(a, "new_thread")
+    assert len(sync_calls(a, "kill")) == 2
+    assert sync_calls(a, "new_thread")
 
     opener = a.board.threads()[-1]
     assert opener.role == "assistant" and opener.parent is None
@@ -110,7 +110,7 @@ def test_a_task_that_looks_almost_done_is_left_running_and_asked_about_again():
 
     assert a.wait_until(lambda: task.killed, timeout=120), a.errors
 
-    seen = [c.result for c in meta_calls(a, "tail")]
+    seen = [c.result for c in sync_calls(a, "tail")]
     assert seen[0] == ALMOST and STUCK in seen
     # the first nudge left it running, so a second one had to come from the timer
     assert a.nudged[task.id] >= 2
@@ -128,7 +128,7 @@ def test_a_task_left_running_is_allowed_to_finish():
     assert a.wait_until(lambda: task.result is not None, timeout=120), a.errors
 
     assert task.result == "72"
-    assert [c.result for c in meta_calls(a, "tail")][0] == ALMOST
-    assert not meta_calls(a, "kill")
+    assert [c.result for c in sync_calls(a, "tail")][0] == ALMOST
+    assert not sync_calls(a, "kill")
     assert not a.timers
     a.stop()
