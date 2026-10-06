@@ -47,7 +47,7 @@ the `main` package via hatchling. Any install that puts the project on the path
 | `/{file}.{ext}` | GET | Static files from `src/main/exp7demo/static/` |
 
 Scenario keys come from `BY_KEY` in `src/main/exp7demo/scenarios.py`: currently
-`one-call` and `weather`.
+`one-call`, `weather` and `overlap`.
 
 ## Configuration
 
@@ -129,8 +129,8 @@ Each active session runs a real agent harness on real threads:
 - 1 thread per running background task
 
 Measured peak extra threads per session: **5** for `weather` (all three tool calls in
-flight), **2** for `one-call`. Both drop back to 0 once the run is stopped, so a
-reaped session reclaims everything.
+flight), **4** for `overlap`, **2** for `one-call`. All drop back to 0 once the run
+is stopped, so a reaped session reclaims everything.
 
 Sessions are reaped when unwatched (no live SSE stream) and idle past `Stages.TTL`.
 A session with a live stream is **never** reaped, so `Stages.MAX` is a soft cap: the

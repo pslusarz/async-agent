@@ -185,5 +185,114 @@ WEATHER = Scenario(
     build=_weather,
 )
 
-SCENARIOS = [ONE_CALL, WEATHER]
+SCHEDULE = dict(
+    name="schedule",
+    description="Look up one person's free hours today. Call once per person.",
+    input_schema=dict(
+        type="object",
+        properties=dict(person=dict(type="string", description="First name")),
+        required=["person"],
+    ),
+)
+
+MEETS = "agent answers the meeting question"
+
+AUSTIN = [
+    ("looking up station KAUS", 1.2),
+    ("station reached, reading sensors", 1.4),
+    ("averaging the last hour", 1.4),
+    ("cross-checking a neighbouring station", 1.4),
+    ("applying the shade correction", 1.4),
+]
+
+PEOPLE = {
+    "Jane": (
+        [
+            ("opening Jane's calendar", 1.2),
+            ("merging two shared calendars", 1.4),
+        ],
+        "free 9-12",
+    ),
+    "Jack": (
+        [
+            ("opening Jack's calendar", 1.2),
+            ("waiting on the room-booking service", 1.4),
+            ("merging two shared calendars", 1.4),
+        ],
+        "free 10-14",
+    ),
+}
+
+
+def _overlap(director):
+    order = list(PEOPLE)
+
+    def weather(city, state):
+        # outlives the whole scheduling exchange, so its answer lands out of order
+        return Scripted(
+            director,
+            f"temperature({city})",
+            list(AUSTIN),
+            f"72F in {city}, {state}",
+            settle_after=MEETS,
+        )
+
+    def calendar(person):
+        steps, answer = PEOPLE[person]
+        return Scripted(
+            director,
+            f"schedule({person})",
+            list(steps),
+            answer,
+            lead=0.12 * order.index(person),
+        )
+
+    replies = [
+        reply(
+            "agent starts the Austin lookup",
+            1.2,
+            "Let me check.",
+            use("temperature", city="Austin", state="TX", timeout=60),
+        ),
+        reply(
+            "agent starts two calendar lookups",
+            1.4,
+            "Sure - I'll look both of them up while that runs.",
+            *(use("schedule", person=p, timeout=60) for p in PEOPLE),
+        ),
+        reply(
+            MEETS,
+            1.4,
+            "Jane is free 9-12 and Jack 10-14, so between 10 and 12 suits them both.",
+        ),
+        reply(
+            "agent answers the Austin question",
+            1.4,
+            "72F in Austin, TX.",
+        ),
+    ]
+    return [Tool(TEMPERATURE, weather), Tool(SCHEDULE, calendar)], replies
+
+
+OVERLAP = Scenario(
+    key="overlap",
+    title="A second question, about something else entirely",
+    blurb=(
+        "A weather lookup is still running when the user asks an unrelated scheduling "
+        "question, so two different tools are in flight at once. The calendars come "
+        "back first and are answered on the spot; the weather lands afterwards and "
+        "has to say which question it belongs to."
+    ),
+    says=[
+        Says("what's the temperature in Austin?"),
+        Says(
+            "while that's running - when can Jane and Jack meet today?",
+            after="temperature(Austin): station reached",
+        ),
+    ],
+    build=_overlap,
+)
+
+
+SCENARIOS = [ONE_CALL, WEATHER, OVERLAP]
 BY_KEY = {s.key: s for s in SCENARIOS}
