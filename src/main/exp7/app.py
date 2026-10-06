@@ -97,9 +97,7 @@ def make_app(chat):
 
     @rt("/")
     def index():
-        return Titled(
-            "async agent", Main(transcript(chat), composer()), Script(STREAM)
-        )
+        return Titled("async agent", Main(transcript(chat), composer()), Script(STREAM))
 
     @rt("/events")
     async def events():

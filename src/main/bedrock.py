@@ -14,7 +14,11 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 
 
 def _creds():
-    c = boto3.Session(profile_name=PROFILE, region_name=REGION).get_credentials().get_frozen_credentials()
+    c = (
+        boto3.Session(profile_name=PROFILE, region_name=REGION)
+        .get_credentials()
+        .get_frozen_credentials()
+    )
     return dict(
         aws_access_key=c.access_key,
         aws_secret_key=c.secret_key,

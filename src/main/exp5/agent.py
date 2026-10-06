@@ -42,6 +42,16 @@ def gave_up(tool: str, n: int) -> str:
     )
 
 
+def ask_instead(tool: str) -> str:
+    """Said last, where the fallback 'Respond to [#n]' would otherwise contradict it."""
+    return (
+        f"This thread is finished: {tool} has been killed too many times to try again, "
+        "so do not reply here. Call new_thread now, and in its text say what you were "
+        "trying to find out, that the tool keeps failing, and ask how they would like "
+        "to proceed."
+    )
+
+
 # A turn is triggered by the user, by a result landing, or by a timer, and each node it
 # posts either looks at a task, starts one, or is the turn's last word. Only some of
 # those nine combinations are worth showing the reader; the rest stay on the board as
@@ -89,6 +99,7 @@ class Agent:
         self.seen: dict[int, str] = {}
         self.events: queue.Queue = queue.Queue()
         self.errors: list[Exception] = []
+        self._ask: str | None = None
         self._auto: dict[int, int] = {}
         self._cv = threading.Condition()
         self._loop = threading.Thread(target=self._run, daemon=True)
@@ -158,7 +169,10 @@ class Agent:
         """Say whether this line of attempts has used up its retries."""
         call = self.board.calls[cid]
         n = self._attempts(cid)
-        return KILLED if n <= self.max_retries else gave_up(call.tool, n)
+        if n <= self.max_retries:
+            return KILLED
+        self._ask = ask_instead(call.tool)
+        return gave_up(call.tool, n)
 
     def _attempts(self, cid: int) -> int:
         """How many times this tool has been killed along the branch leading to `cid`.
@@ -253,6 +267,7 @@ class Agent:
                 self._changed()
                 if any(c.name in ENDS_TURN for c in metas):
                     return node
+                note, self._ask = self._ask, None
                 continue
             node = self.board.post(
                 "assistant", text, parent=mid, aside=not speaks(trigger, "work")
