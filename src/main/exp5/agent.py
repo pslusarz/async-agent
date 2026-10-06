@@ -111,7 +111,7 @@ class Agent:
         max_retries: int = 2,
         timeout_cap: float = 60.0,
     ):
-        self.cli = raw_client()
+        self.cli = self._client()
         self.model = model
         self.maxtok = maxtok
         self.max_auto = max_auto
@@ -136,6 +136,9 @@ class Agent:
         self._cv = threading.Condition()
         self._loop = threading.Thread(target=self._run, daemon=True)
         self._loop.start()
+
+    def _client(self):
+        return raw_client()
 
     def post(self, text: str, parent: int | None = None) -> Msg:
         m = self.board.post("user", text, parent=parent)

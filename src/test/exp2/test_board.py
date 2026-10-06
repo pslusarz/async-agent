@@ -67,7 +67,9 @@ def pending(actions=("tail", "kill")):
     b = Board()
     q = b.post("user", "temperature in Warsaw, MO?")
     n = b.post("assistant", "Let me look that up.", parent=q.id)
-    c = b.add_call(n.id, "temperature", dict(city="Warsaw", state="MO"), actions=actions)
+    c = b.add_call(
+        n.id, "temperature", dict(city="Warsaw", state="MO"), actions=actions
+    )
     return b, n, c
 
 
@@ -115,7 +117,7 @@ def test_one_node_can_hold_several_placeholders():
 
     b.set_result(c2.id, "68")
     assert n.terminal
-    assert not b.answered(q.id)          # filled, but nobody has said anything
+    assert not b.answered(q.id)  # filled, but nobody has said anything
 
     b.post("assistant", "72 and 68.", parent=n.id)
     assert b.answered(q.id)
@@ -131,4 +133,7 @@ def test_a_reply_to_a_pending_task_says_which_task_it_refers_to():
     assert f"[this message is in reference to task #{c.id} started earlier]" in line()
 
     b.set_result(c.id, "72")
-    assert f"[this message is in reference to task #{c.id}, which already returned: 72]" in line()
+    assert (
+        f"[this message is in reference to task #{c.id}, which already returned: 72]"
+        in line()
+    )
