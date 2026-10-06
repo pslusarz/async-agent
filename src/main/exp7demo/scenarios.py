@@ -91,7 +91,9 @@ def _one_call(director):
             "Let me find out.",
             use("build_time", timeout=60),
         ),
-        reply("agent answers about the build", 1.4, "The build needs about 12 minutes."),
+        reply(
+            "agent answers about the build", 1.4, "The build needs about 12 minutes."
+        ),
         reply(
             "agent starts test_time",
             1.2,

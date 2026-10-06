@@ -3,6 +3,10 @@
 > **Write-up:** [An agent you can interrupt](https://pslusarz.github.io/articles/2026/10/01/an-agent-you-can-interrupt.html)
 > — why an event loop is enough to produce ReAct, what breaks once a tool outlives the
 > turn that called it, and how this compares with Anthropic's Claude Agent SDK.
+>
+> **Demo:** [async-agent-demo-production.up.railway.app](https://async-agent-demo-production.up.railway.app)
+> — the harness running three scenarios you can play, pause or step through a beat at
+> a time, with the agent's board beside the chat. Nothing calls a model.
 
 If you have ever typed a steering message to GitHub Copilot while it was waiting on
 a long-running tool, and watched your message sit there until the tool finished, you
@@ -341,3 +345,40 @@ covering the tool contract itself, progress probes, cancellation, tools that rai
 retries after a bad call, several tools running at once, timeouts and the decisions
 they force, and a browser driving the real app — plus 16 more driving the SDK, which
 are where the comparison above comes from.
+
+## The demo app
+
+[async-agent-demo-production.up.railway.app](https://async-agent-demo-production.up.railway.app)
+is a public walkthrough of the harness. **No model is called.** The replies are canned
+and the tools are scripted, so it behaves the same way every time, costs nothing to
+leave running, and needs no credentials.
+
+Everything else is the real thing: the same board, the same background tasks on the
+same threads, the same widgets. The panel on the right shows the board exactly as the
+model would have been handed it, plus live `tail` output from each running task.
+
+Three scenarios, all driveable with **Play**, **Pause** and **Step**:
+
+- **One tool call, then one that wedges** — the simple shape first, then a tool that
+  reports progress and stops dead. The harness notices it is overdue; the agent tails
+  it, kills it and starts a fresh call that completes.
+- **Three at once, with a conversation over the top** — three lookups in flight while
+  the user asks for a joke and then a progress report.
+- **A second question, about something else entirely** — two different tools
+  overlapping, where the later question is answered first and the earlier answer has
+  to say which question it belongs to.
+
+The code is [src/main/exp7demo](src/main/exp7demo), about 1,100 lines on top of `exp7`:
+
+- `director.py` — the gate every thread passes through, so Pause stops the agent, the
+  tools and the scripted user together rather than only what is on screen.
+- `script.py` — the canned client, the scripted tool, and an `Agent` whose overdue
+  timer is a director beat rather than a wall clock (a real timer would fire while the
+  viewer had it paused).
+- `scenarios.py` — the scenarios themselves. Ordering is pinned with cues rather than
+  sleeps: a scripted question waits on a beat from a tool's progress, and a task can
+  carry `settle_after` so it cannot land before some other beat has played.
+
+Running it locally, deploying it, and the operational traps — session affinity, SSE
+buffering, graceful shutdown — are in
+[.github/skills/exp7-demo-deploy/SKILL.md](.github/skills/exp7-demo-deploy/SKILL.md).
