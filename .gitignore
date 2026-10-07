@@ -20,6 +20,9 @@ logs/
 # fasthtml session signing key
 .sesskey
 
+# langgraph dev's local store
+.langgraph_api/
+
 # Python
 __pycache__/
 *.py[cod]

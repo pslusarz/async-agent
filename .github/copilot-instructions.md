@@ -48,6 +48,19 @@ The way I see it is the harness running an event loop, where certain parts of th
   widgets and the fasthtml app shows them beside the transcript: a spinner with the
   tool's name and arguments while it runs, shrinking to a green dot when it returns
   and a red one when it fails or is killed.
+- `src/main/exp9` — **subagents**, built out of LangChain and LangGraph alone. Two deep
+  agents are registered in `langgraph.json` and served by `langgraph dev`; the
+  supervisor reaches the researcher through deepagents' `AsyncSubAgent`, which is a
+  thread and a run on that Agent Protocol server, and its tools are
+  `start`/`check`/`update`/`cancel`/`list` over the LangGraph SDK. `app.py` is a plain
+  SDK client: it posts each turn as a run with `multitask_strategy="enqueue"` and draws
+  the `async_tasks` state channel, reading the subagent's own thread to show what it is
+  doing. As shipped the middleware is pull-only — nothing tells the supervisor a task
+  finished, and nothing shows progress — so `watch.py` adds two SDK-built tools:
+  `peek_async_task`, which reads the subagent's thread state, and `check_back_in`,
+  which schedules a run on the supervisor's own thread with `after_seconds` and cancels
+  the pending one first, so exactly one wake-up is armed. With those it answers
+  unprompted, like the harness. The leftover differences are tabulated in the README.
 
 ## Setup
 

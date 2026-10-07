@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "."
+    ],
+    "graphs": {
+        "supervisor": "main.exp9.supervisor:graph",
+        "researcher": "main.exp9.researcher:graph"
+    }
+}
