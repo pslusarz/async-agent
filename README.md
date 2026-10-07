@@ -12,7 +12,10 @@ A proof-of-concept harness for an agent you can keep talking to while its tools 
 still running. The write-up above explains the design and what it is for; this file is
 about the code.
 
-![the chat app](docs/async-chat-demo.png)
+The demo, played through: a tool reports progress and then wedges, the harness notices
+it is overdue, and the agent tails it, kills it and starts a fresh call that completes.
+
+![a tool wedges, the agent kills it and retries](docs/demo-kill-and-retry.gif)
 
 ## Layout
 
@@ -156,3 +159,7 @@ tests replay in under a minute with `AWS_ACCESS_KEY_ID` set to nonsense.
 
 More detail, and the conventions an agent working in this repo should follow, are in
 [.github/copilot-instructions.md](.github/copilot-instructions.md).
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
