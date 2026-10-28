@@ -32,6 +32,7 @@ experiment builds on the one before it rather than replacing it.
 | `src/main/exp7` | exp5 with running tasks drawn — spinners and dots beside the turn that started them |
 | `src/main/exp7demo` | the public demo: canned replies, scripted tools, play/pause/step |
 | `src/main/exp9` | **subagents**, on LangGraph and deepagents' `AsyncSubAgent` — none of our harness underneath |
+| `src/main/exp10` | exp5 **without the board**: a flat transcript, plus a list of running work shown before every turn and never stored |
 | `src/main/exp4`, `exp6` | the control — the whole thing again on the Claude Agent SDK, then timeouts on top |
 
 The tools are toys — a thermometer, a calendar, a build timer — picked because they
@@ -82,6 +83,37 @@ from being aware of its own long-running work. What the stack does not give you 
 *default* — the push, the progress, and the distinction between words meant for the
 person and words the harness asked for.
 
+## exp10: no board, just a list of what is running
+
+exp10 asks how much of the board was needed. The transcript is a plain list of API
+messages with real roles. Each background call remembers two things: the question it
+serves, and the breath it was made in. Everything else follows from those:
+
+- **Current state, never history.** Before every model call the harness appends a
+  notice of the work still running — signature, task id, the question it was started
+  for, and the result of anything in the same breath that has already returned. It is
+  built fresh each time and not stored, so the agent never reads a stale snapshot.
+- **One report per breath.** Calls made together are reported together, once all of
+  them have settled, as a stored notice. Partial results are in the running list
+  meanwhile, so the agent can answer "how is it going?" and the person can drop the
+  rest. A breath that was entirely killed is not reported: the turn that killed it
+  already said so.
+- **The question, when it has scrolled away.** The report quotes the question only if
+  the person has said something since.
+- **No duplicates.** A call identical to one still running is refused, and the refusal
+  names the way out (kill it, then call again). The tool descriptions say nothing about
+  it, so the edge case costs no context until it happens.
+- **Retries per call.** Kills are counted by (question, tool, arguments), so cities
+  asked side by side do not spend each other's retries.
+
+What it drops: the tree, the lock, `new_thread` (giving up is now just telling the
+person), and exp2's "Reply placement vs. task completion" gap, which has nowhere to
+happen. A chained call inherits its question, so the answer still knows what it is for.
+
+```sh
+LLM_CACHE=off uv run python -m main.exp10.repl
+```
+
 ## Setup
 
 ```sh
@@ -102,11 +134,11 @@ export AWS_REGION=us-east-1
 uv run pytest
 ```
 
-130 tests. The default run is the 113 that replay from `llm_cache.jsonl`, so the suite
+148 tests. The default run is the 126 that replay from `llm_cache.jsonl` or need no model, so the suite
 finishes in seconds without calling Bedrock; `LLM_CACHE=off` forces live calls. A cold
 run still needs credentials, because the client is built before any cache lookup.
 
-The other 17 are excluded by default and run on demand:
+The other 22 are excluded by default and run on demand:
 
 ```sh
 # exp5's one realtime test: two timer-driven turns spaced by model latency
@@ -126,6 +158,10 @@ AWS_PROFILE=staging AWS_REGION=us-east-1 CLAUDE_CODE_USE_BEDROCK=1 \
 # exp9 needs the Agent Protocol server; the fixture starts one if none is up
 AWS_PROFILE=staging AWS_REGION=us-east-1 \
   uv run pytest src/test/exp9 -m live -n0
+
+# exp10's model tests; its harness tests run by default against a scripted model
+AWS_PROFILE=staging AWS_REGION=us-east-1 \
+  uv run pytest src/test/exp10 -m live -n0
 ```
 
 Record with `-n0`: cachy rewrites the whole file per entry, so parallel workers lose

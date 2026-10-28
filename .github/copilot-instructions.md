@@ -61,6 +61,20 @@ The way I see it is the harness running an event loop, where certain parts of th
   which schedules a run on the supervisor's own thread with `after_seconds` and cancels
   the pending one first, so exactly one wake-up is armed. With those it answers
   unprompted, like the harness. The leftover differences are tabulated in the README.
+- `src/main/exp10` — exp5 without the board. A flat transcript of API messages with
+  real roles; each background call records the question it serves and the breath
+  (assistant message) it was made in. Before every model call `render` appends a
+  notice of the work still running, partial results included, which is never stored.
+  A breath is reported once, when all its calls have settled, quoting the question if
+  the person has spoken since. A call identical to one still running is refused with
+  an error that names kill-and-retry. Kills count per (question, tool, args). The
+  harness tests in `test_running.py` drive a scripted model (`conftest.Script`) that
+  also checks every request the way the API would; `test_live.py` is `live`.
+  **Work in progress.** exp10 has only been run against the scripted model. The live
+  tests and the REPL have never been run against Bedrock, so nothing about how the
+  model reads the running list, the batch reports or the duplicate refusal is
+  verified yet. Record `test_live.py` first, expect to iterate on the prompts and
+  assertions, and treat the design as provisional until then.
 
 ## Setup
 
