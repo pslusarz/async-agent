@@ -350,26 +350,29 @@ class Agent:
                 if b.type in ("text", "tool_use")
             ]
             uses = [b for b in r.content if b.type == "tool_use"]
-            if content:
-                node = self._append(
-                    "assistant",
-                    content,
-                    question=question,
-                    # a turn the timer asked for is the agent's own business, unless
-                    # it has given up and must tell the person
-                    aside=trigger == "overdue" and not self._gave_up,
-                )
-            if not uses:
-                return
-            results = [
-                dict(
-                    type="tool_result",
-                    tool_use_id=u.id,
-                    content=self._use(u, question, node.id),
-                )
-                for u in uses
-            ]
-            self._append("user", results, kind="tool_results", question=question)
+            # the API wants a tool_use answered by the very next message, so a person
+            # posting meanwhile waits on the lock until the results are kept
+            with self._cv:
+                if content:
+                    node = self._append(
+                        "assistant",
+                        content,
+                        question=question,
+                        # a turn the timer asked for is the agent's own business, unless
+                        # it has given up and must tell the person
+                        aside=trigger == "overdue" and not self._gave_up,
+                    )
+                if not uses:
+                    return
+                results = [
+                    dict(
+                        type="tool_result",
+                        tool_use_id=u.id,
+                        content=self._use(u, question, node.id),
+                    )
+                    for u in uses
+                ]
+                self._append("user", results, kind="tool_results", question=question)
             # every result is read on the next step, background or not: a started
             # task is a result too, and the agent may want to say so
 

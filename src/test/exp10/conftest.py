@@ -31,11 +31,9 @@ def check(messages: list[dict]):
         uses = [c["id"] for c in m["content"] if c["type"] == "tool_use"]
         if uses:
             answered = [
-                c["tool_use_id"]
-                for c in messages[i + 1]["content"]
-                if c["type"] == "tool_result"
+                c.get("tool_use_id") for c in messages[i + 1]["content"][: len(uses)]
             ]
-            assert answered[: len(uses)] == uses, "tool_result must lead the next turn"
+            assert answered == uses, "tool_result must lead the next turn"
 
 
 class Script:

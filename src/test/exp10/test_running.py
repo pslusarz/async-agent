@@ -1,8 +1,9 @@
 """The harness against a scripted model: what it shows, keeps, reports and refuses."""
 
 import json
+import threading
 
-from main.exp2.tools import BOOK_ROOM, Answer, Tool
+from main.exp2.tools import BOOK_ROOM, TEMPERATURE, Answer, Tool
 from main.exp2.tools import temperature as instant
 from main.exp5.tools import STUCK
 from main.exp10.agent import NOTICE, Agent, Call
@@ -272,4 +273,31 @@ def test_a_look_and_a_new_call_can_share_one_breath():
     looked, began = results(a)[:2]
     assert looked == "no such task #99"
     assert began.startswith("started in the background as task #1")
+    a.stop()
+
+
+def test_a_message_sent_while_a_call_starts_comes_after_its_result():
+    entered, go = threading.Event(), threading.Event()
+
+    def slow_start(city, state):
+        entered.set()
+        go.wait(5)
+        return Answer("81")
+
+    s = Script(
+        use("temperature", **COLUMBIA),
+        say("Checking."),
+        say("It is already under way."),
+        say("Columbia is 81."),
+    )
+    a = Agent(tools=[Tool(TEMPERATURE, slow_start)], client=s)
+    q = a.post("What is the temperature in Columbia, MO?")
+    assert entered.wait(5)
+    late = threading.Thread(target=a.post, args=("Could you look up Columbia, MO?",))
+    late.start()
+    late.join(0.2)
+    go.set()
+    late.join(5)
+    assert a.wait_until(lambda: len(s.requests) == 4 and a.answered(q.id), 5), a.errors
+    assert a.errors == []
     a.stop()
