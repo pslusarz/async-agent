@@ -86,3 +86,17 @@ def test_an_overdue_lookup_is_inspected_and_killed():
     assert a.wait_until(lambda: 1 in a.calls and a.calls[1].killed, 90), a.errors
     assert any(STUCK in r for r in tool_results(a))
     a.stop()
+
+
+def test_starting_the_lookups_is_not_followed_by_a_second_message(gates):
+    tool, open_ = gates
+    a = Agent(tools=[tool, tail, kill])
+    q = a.post(Q)
+    assert a.wait_until(lambda: len(a.calls) == 2, 60), a.errors
+    open_("Columbia")
+    open_("Washington")
+    a.wait_for(q, timeout=60)
+    a.stop()
+    report = next(e.id for e in a.log if e.kind == "note")
+    before = [e.text for e in a.log if a._spoken(e) and e.id < report]
+    assert len(before) <= 1, before

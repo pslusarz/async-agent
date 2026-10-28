@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 
 from main.exp2.tools import BOOK_ROOM, TEMPERATURE, Answer, Tool
 from main.exp2.tools import temperature as instant
@@ -135,6 +136,7 @@ def test_a_call_already_running_is_refused_and_the_way_out_is_named(gates):
     )
     a = Agent(tools=[tool, tail, kill], client=s)
     q = a.post("What is the temperature in Columbia, MO?")
+    assert a.wait_until(lambda: a.answer_of(q.id) is not None, 5), a.errors
     again = a.wait_for("And what about Columbia, MO?", timeout=5)
     assert again.text == "That is already under way."
 
@@ -182,6 +184,7 @@ def test_a_batch_that_was_all_killed_is_not_reported():
     )
     a = Agent(tools=[stuck_temperature, tail, kill], client=s)
     q = a.post("What is the temperature in Columbia, MO?")
+    assert a.wait_until(lambda: a.answer_of(q.id) is not None, 5), a.errors
     a.wait_for("stop that", timeout=5)
     assert a.wait_until(lambda: a.answered(q.id), 5)
     assert not notes(a) and len(s.requests) == 4
@@ -293,11 +296,51 @@ def test_a_message_sent_while_a_call_starts_comes_after_its_result():
     a = Agent(tools=[Tool(TEMPERATURE, slow_start)], client=s)
     q = a.post("What is the temperature in Columbia, MO?")
     assert entered.wait(5)
-    late = threading.Thread(target=a.post, args=("Could you look up Columbia, MO?",))
+    posted = []
+    late = threading.Thread(
+        target=lambda: posted.append(a.post("Could you look up Columbia, MO?"))
+    )
     late.start()
     late.join(0.2)
     go.set()
     late.join(5)
-    assert a.wait_until(lambda: len(s.requests) == 4 and a.answered(q.id), 5), a.errors
+    # one reply may answer both, or each its own, but neither goes unanswered
+    both = lambda: a.answered(q.id) and a.answered(posted[0].id)
+    assert a.wait_until(both, 5), a.errors
     assert a.errors == []
     a.stop()
+
+
+class Held(Script):
+    """A Script that keeps one reply back until the test lets it go."""
+
+    def __init__(self, *replies, at: int):
+        super().__init__(*replies)
+        self.at = at
+        self.go = threading.Event()
+
+    def create(self, **kw):
+        if len(self.requests) == self.at:
+            self.go.wait(5)
+        return super().create(**kw)
+
+
+def test_a_message_answered_in_a_turn_the_timer_started_reaches_the_reader():
+    s = Held(
+        use("temperature", **(COLUMBIA | dict(timeout=0.1))),
+        say("Checking."),
+        say("Why did the chicken cross the road?"),
+        say("Still waiting on Columbia."),
+        say("Still waiting on Columbia."),
+        at=1,
+    )
+    a = Agent(tools=[stuck_temperature, tail, kill], client=s, timeout_cap=0.1)
+    a.post("What is the temperature in Columbia, MO?")
+    # the timer goes off while the first turn is still out with the model, and the
+    # person asks for a joke before the harness gets round to the timer
+    time.sleep(0.3)
+    joke = a.post("tell me a joke while we wait")
+    s.go.set()
+    assert a.wait_until(lambda: a.answered(joke.id), 5), a.errors
+    a.stop()
+    assert any("chicken" in text for who, text in a.transcript() if who == "agent")

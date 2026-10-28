@@ -80,6 +80,8 @@ class Entry:
     question: int | None = None
     # words the harness asked for, kept for context but never shown to the reader
     aside: bool = False
+    # for a reply: the last entry the model had been shown when it wrote it
+    saw: int = 0
     at: float = field(default_factory=time.time)
 
     @property
@@ -90,7 +92,8 @@ class Entry:
 def started(c: Call) -> str:
     return (
         f"started in the background as task #{c.id}. Its outcome will be reported to "
-        "you once it and anything started alongside it have finished."
+        "you once it and anything started alongside it have finished. If the person "
+        f"asks how it is going before then, tail(task={c.id}) shows its progress."
     )
 
 
@@ -165,6 +168,8 @@ class Agent:
         # batches whose outcome the agent has not been told yet
         self.owed: set[int] = set()
         self._auto: dict[int, int] = {}
+        # a message posted mid-turn, and the reply of that turn which answered it
+        self._covered: dict[int, int] = {}
         self._gave_up = False
         self._entries = count(1)
         self._tasks = count(1)
@@ -188,7 +193,11 @@ class Agent:
 
     def answer_of(self, q: int) -> Entry | None:
         with self._cv:
-            said = [e for e in self.log if self._spoken(e) and e.question == q]
+            said = [
+                e
+                for e in self.log
+                if self._spoken(e) and (e.question == q or e.id == self._covered.get(q))
+            ]
             return said[-1] if said else None
 
     def wait_for(self, target: str | Entry, timeout: float = 60) -> Entry:
@@ -330,20 +339,44 @@ class Agent:
             with self._cv:
                 self._cv.notify_all()
 
-    def _call(self):
+    def _call(self) -> tuple:
+        """Ask the model, and say how far into the transcript it could see."""
+        with self._cv:
+            saw = self.log[-1].id
+            messages = self.render()
         kw = dict(tools=self.schemas) if self.schemas else {}
-        return self.cli.messages.create(
+        r = self.cli.messages.create(
             model=self.model,
             max_tokens=self.maxtok,
             system=self.sp,
-            messages=self.render(),
+            messages=messages,
             **kw,
+        )
+        return r, saw
+
+    def _heard(self) -> int:
+        """How far the agent had read when it last spoke to the person."""
+        spoken = [e for e in self.log if self._spoken(e)]
+        return spoken[-1].saw if spoken else 0
+
+    def _unheard(self, saw: int) -> bool:
+        """Whether the person said something, up to `saw`, not yet spoken back to."""
+        heard = self._heard()
+        return any(
+            e.role == "user" and e.kind == "said" and heard < e.id <= saw
+            for e in self.log
         )
 
     def _take_turn(self, question: int, trigger: str):
+        with self._cv:
+            # posted while a turn was running, and that turn has seen and answered it;
+            # another turn would ask the model to continue its own reply
+            if trigger == "user" and self._heard() >= question:
+                self._covered[question] = [e for e in self.log if self._spoken(e)][-1].id
+                return
         self._gave_up = False
         for _ in range(MAX_STEPS):
-            r = self._call()
+            r, saw = self._call()
             content = [
                 b.model_dump(include={"type", "text", "id", "name", "input"})
                 for b in r.content
@@ -359,11 +392,15 @@ class Agent:
                         content,
                         question=question,
                         # a turn the timer asked for is the agent's own business, unless
-                        # it has given up and must tell the person
-                        aside=trigger == "overdue" and not self._gave_up,
+                        # it has given up, or the person spoke and this is the reply
+                        aside=trigger == "overdue"
+                        and not self._gave_up
+                        and not self._unheard(saw),
+                        saw=saw,
                     )
                 if not uses:
                     return
+                before = len(self.calls)
                 results = [
                     dict(
                         type="tool_result",
@@ -373,8 +410,13 @@ class Agent:
                     for u in uses
                 ]
                 self._append("user", results, kind="tool_results", question=question)
-            # every result is read on the next step, background or not: a started
-            # task is a result too, and the agent may want to say so
+                began = len(self.calls) - before == len(uses)
+            # it said something and only started background work, so there is nothing
+            # to add until that work reports; another step would only say "still waiting"
+            if began and node.text.strip():
+                return
+            # otherwise every result is read on the next step: a look, a kill, a
+            # refusal, or a start the person has not been told about yet
 
     def _use(self, u, question: int, batch: int) -> str:
         tool = self.tools.get(u.name)
