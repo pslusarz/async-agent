@@ -114,6 +114,49 @@ happen. A chained call inherits its question, so the answer still knows what it 
 LLM_CACHE=off uv run python -m main.exp10.repl
 ```
 
+### What running it against Bedrock found
+
+The design held up; the harness around it needed four fixes, each found live or in
+the debugger and pinned by a scripted test that reproduces it:
+
+- **A tool call and its result must stay together.** The API rejects a `tool_use`
+  whose `tool_result` does not lead the next message. A message posted while a turn
+  was starting its tools could land between the two, and Bedrock answered 400. The
+  turn now stores both under the lock that posting takes.
+- **No "still waiting" after a start.** After the tools started, the turn asked the
+  model again, and it nearly always filled the step with "still waiting on the
+  results". Asking it not to in the started notice failed every live run, so the
+  harness ends the turn instead when the model has already spoken and only started
+  background work.
+- **A reply to the person is never hidden.** Words in a turn the overdue timer started
+  are asides. When the person asked for a joke just as a timer fired, that turn was the
+  first to see the request and told the joke, out of sight; the model then insisted it
+  had. Each reply now records the last entry the model was shown, and a timer turn
+  that answers the person speaks to them.
+- **One answer per message.** A message posted mid-turn is often answered by that turn.
+  Another turn for it would ask the model to continue its own reply, so it is skipped
+  once a reply has actually seen the message, not merely been stored after it.
+
+The live tests, all recorded: a joke while two lookups run then one answer for both,
+progress answered from the running list, asking again without a second lookup,
+dropping one city and keeping the other, an overdue lookup inspected and killed, and
+no second message after starting work. Dropping a city depends on the model calling
+`kill`, and failed once before passing every run since.
+
+### The debugger
+
+```sh
+LLM_CACHE=off uv run uvicorn main.exp10.app:app --port 8000
+```
+
+The chat on the left, and on the right what is underneath it: every call with its
+question and breath, the messages the model would be sent now, and a timeline of every
+stored entry, queued event and model call, each request showing only what changed
+since the last. Tools: `temperature` on a timer (Columbia 3s, Washington 6s, anywhere
+else 3s), exp3's `schedule` (6–45s at random, so timers fire), `tail` and `kill`.
+`trace.py` records it all from outside the agent, and the page streams one event per
+step, so nothing on it is redrawn.
+
 ## Setup
 
 ```sh
@@ -134,11 +177,11 @@ export AWS_REGION=us-east-1
 uv run pytest
 ```
 
-148 tests. The default run is the 126 that replay from `llm_cache.jsonl` or need no model, so the suite
+164 tests. The default run is the 135 that replay from `llm_cache.jsonl` or need no model, so the suite
 finishes in seconds without calling Bedrock; `LLM_CACHE=off` forces live calls. A cold
 run still needs credentials, because the client is built before any cache lookup.
 
-The other 22 are excluded by default and run on demand:
+The other 29 are excluded by default and run on demand:
 
 ```sh
 # exp5's one realtime test: two timer-driven turns spaced by model latency
@@ -183,6 +226,9 @@ Things worth remembering:
 ```sh
 # the chat app (exp3), against a live model
 LLM_CACHE=off uv run uvicorn main.exp3.app:app --port 8000
+
+# exp10's chat with the debugger beside it
+LLM_CACHE=off uv run uvicorn main.exp10.app:app --port 8000
 
 # the subagent chat app on LangGraph (exp9): the graphs server first, then the app
 uv run langgraph dev --no-browser --no-reload --n-jobs-per-worker 10

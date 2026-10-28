@@ -69,12 +69,18 @@ The way I see it is the harness running an event loop, where certain parts of th
   the person has spoken since. A call identical to one still running is refused with
   an error that names kill-and-retry. Kills count per (question, tool, args). The
   harness tests in `test_running.py` drive a scripted model (`conftest.Script`) that
-  also checks every request the way the API would; `test_live.py` is `live`.
-  **Work in progress.** exp10 has only been run against the scripted model. The live
-  tests and the REPL have never been run against Bedrock, so nothing about how the
-  model reads the running list, the batch reports or the duplicate refusal is
-  verified yet. Record `test_live.py` first, expect to iterate on the prompts and
-  assertions, and treat the design as provisional until then.
+  also checks every request the way the API would: a `tool_result` must lead the
+  message after its `tool_use`. `test_live.py` is `live`, recorded against Bedrock.
+  A turn stores a step's `tool_use` and its results under the lock `post()` takes, so a
+  message posted meanwhile lands after them. A step that said something and only
+  started background work ends the turn, because another step only says "still
+  waiting". Each reply records `saw`, the last entry the model was shown: a turn for a
+  message is skipped once a reply has seen it, and a reply in a turn the overdue timer
+  started is not an aside when it answers something the person said.
+  `app.py` is the chat with a debugger beside it. `trace.py` records every stored
+  entry, queued event and model call by wrapping the client, `_append` and
+  `events.put`, with no change to `agent.py`; the page streams one SSE event per step,
+  with the step number as its id, and never redraws what it already shows.
 
 ## Setup
 
